@@ -1,0 +1,5 @@
+{
+  "name": "Mon Gars",
+  "description": "A privacy-first, offline AI assistant running completely in your browser using WebGPU.",
+  "requestFramePermissions": []
+}
