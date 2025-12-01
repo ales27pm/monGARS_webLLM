@@ -1,127 +1,1279 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mon Gars - Offline AI Assistant</title>
-    <meta name="description" content="Privacy-first AI assistant running completely offline in your browser">
-    <meta name="theme-color" content="#10b981">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #10b981;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            -webkit-font-smoothing: antialiased;
-        }
-        .safe-area-bottom {
-            padding-bottom: env(safe-area-inset-bottom);
-        }
-        
-        /* Animations */
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        .animate-shimmer {
-            animation: shimmer 1.5s infinite;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-            animation: fadeIn 0.3s ease-out;
-        }
-        
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.4); }
-            50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); }
-        }
-        .animate-pulse-glow {
-            animation: pulse-glow 2s infinite;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .spinner {
-            border: 2px solid #f3f4f6;
-            border-top: 2px solid var(--primary);
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-            background: #475569;
-        }
-        
-        /* Utilities */
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-        .dark .glass-effect {
-            background: rgba(15, 23, 42, 0.8);
-        }
-    </style>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        emerald: {
-                            50: '#ecfdf5',
-                            100: '#d1fae5',
-                            200: '#a7f3d0',
-                            300: '#6ee7b7',
-                            400: '#34d399',
-                            500: '#10b981',
-                            600: '#059669',
-                            700: '#047857',
-                            800: '#065f46',
-                            900: '#064e3b',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-<script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/"
-  }
-}
-</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mon Gars – Assistant IA Local</title>
+  <meta name="description" content="Assistant IA fonctionnant entièrement localement dans votre navigateur avec WebGPU">
+  <meta name="theme-color" content="#4f46e5">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --primary-light: #e0e7ff;
+      --success: #10b981;
+      --success-dark: #059669;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --bg-light: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-dark: #0f172a;
+      --border: #e2e8f0;
+      --border-dark: #334155;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-dark: #f1f5f9;
+      --shadow: 0 1px 3px rgba(0,0,0,0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
+    }
+    
+    [data-theme="dark"] {
+      --bg-light: #0f172a;
+      --bg-card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+      background-color: var(--bg-light);
+      color: var(--text);
+      line-height: 1.6;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    
+    #root {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* Header Styles */
+    header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      transition: all 0.3s ease;
+    }
+    
+    .header-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    
+    .header-title {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .header-title i {
+      color: var(--primary);
+    }
+    
+    .model-info {
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    
+    .model-tag {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    
+    button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    
+    .load-btn {
+      background: var(--primary);
+      color: white;
+    }
+    
+    .load-btn:hover:not(:disabled) {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .reset-btn {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    
+    .reset-btn:hover:not(:disabled) {
+      background: var(--bg-light);
+    }
+    
+    .theme-btn {
+      background: transparent;
+      color: var(--text-muted);
+      padding: 8px;
+      border-radius: 8px;
+    }
+    
+    .theme-btn:hover {
+      background: var(--bg-light);
+      color: var(--text);
+    }
+    
+    /* Status Bar */
+    .status-bar {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-light);
+      font-size: 13px;
+      position: relative;
+      z-index: 90;
+    }
+    
+    .status-text {
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .status-text strong {
+      color: var(--text);
+    }
+    
+    .progress-container {
+      height: 6px;
+      border-radius: 999px;
+      background: var(--border);
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--success), var(--success-dark));
+      transition: width 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .progress-bar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+      animation: shimmer 2s infinite;
+    }
+    
+    .progress-error {
+      background: var(--error);
+    }
+    
+    /* Main Content */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+    
+    .welcome-card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      padding: 24px;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .welcome-card strong {
+      color: var(--text);
+    }
+    
+    .welcome-icon {
+      font-size: 48px;
+      color: var(--primary);
+      margin-bottom: 16px;
+    }
+    
+    .message {
+      max-width: 85%;
+      padding: 16px 20px;
+      border-radius: 16px;
+      font-size: 15px;
+      line-height: 1.6;
+      position: relative;
+      animation: fadeIn 0.3s ease;
+      box-shadow: var(--shadow);
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes shimmer {
+      0% { left: -100%; }
+      100% { left: 100%; }
+    }
+    
+    .user-message {
+      align-self: flex-end;
+      background: var(--primary);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    
+    .assistant-message {
+      align-self: flex-start;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+    
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12px;
+      opacity: 0.8;
+    }
+    
+    .message-content {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    
+    .message-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    
+    .message:hover .message-actions {
+      opacity: 1;
+    }
+    
+    .action-btn {
+      background: transparent;
+      color: var(--text-muted);
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+    
+    .action-btn:hover {
+      background: var(--bg-light);
+      color: var(--text);
+    }
+    
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      background: var(--bg-card);
+      padding: 16px 20px 20px;
+      position: sticky;
+      bottom: 0;
+      z-index: 80;
+    }
+    
+    .error-banner {
+      background: #fef2f2;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      border-left: 4px solid var(--error);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: slideIn 0.3s ease;
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateY(-10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .error-banner i {
+      font-size: 16px;
+    }
+    
+    .settings-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    
+    .setting-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 160px;
+    }
+    
+    label {
+      margin-bottom: 6px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 500;
+    }
+    
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border);
+      outline: none;
+      -webkit-appearance: none;
+    }
+    
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+    }
+    
+    input[type="number"] {
+      width: 80px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg-card);
+      color: var(--text);
+    }
+    
+    .clear-btn {
+      margin-left: auto;
+      background: var(--bg-light);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      padding: 8px 16px;
+    }
+    
+    .clear-btn:hover {
+      background: var(--border);
+    }
+    
+    .chat-input-container {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    
+    textarea {
+      flex: 1;
+      min-height: 56px;
+      max-height: 120px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-family: inherit;
+      font-size: 15px;
+      resize: none;
+      transition: all 0.2s ease;
+      background: var(--bg-card);
+      color: var(--text);
+    }
+    
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+    }
+    
+    textarea:disabled {
+      background: var(--bg-light);
+      color: var(--text-muted);
+    }
+    
+    .send-btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      min-width: 90px;
+      height: 56px;
+      transition: all 0.2s ease;
+    }
+    
+    .send-btn:hover:not(:disabled) {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .send-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 14px;
+      padding: 12px 0;
+    }
+    
+    .loading-dots {
+      display: inline-flex;
+      gap: 4px;
+    }
+    
+    .loading-dots span {
+      animation: pulse 1.5s infinite;
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+    
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+    
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.8); opacity: 0.6; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    
+    /* Toast Notifications */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      max-width: 400px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transform: translateX(150%);
+      transition: transform 0.3s ease;
+    }
+    
+    .toast.show {
+      transform: translateX(0);
+    }
+    
+    .toast.success {
+      border-left: 4px solid var(--success);
+    }
+    
+    .toast.error {
+      border-left: 4px solid var(--error);
+    }
+    
+    .toast.warning {
+      border-left: 4px solid var(--warning);
+    }
+    
+    .toast-icon {
+      font-size: 20px;
+    }
+    
+    .toast.success .toast-icon { color: var(--success); }
+    .toast.error .toast-icon { color: var(--error); }
+    .toast.warning .toast-icon { color: var(--warning); }
+    
+    .toast-content {
+      flex: 1;
+    }
+    
+    .toast-title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    
+    .toast-message {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    
+    .toast-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 4px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    
+    .toast-close:hover {
+      background: var(--bg-light);
+      color: var(--text);
+    }
+    
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .message {
+        max-width: 95%;
+      }
+      
+      .model-info {
+        font-size: 12px;
+      }
+      
+      .header-title {
+        font-size: 16px;
+      }
+      
+      .settings-container {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      
+      .clear-btn {
+        margin-left: 0;
+      }
+      
+      header, .status-bar, footer {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      
+      main {
+        padding: 16px;
+      }
+      
+      .toast {
+        right: 16px;
+        left: 16px;
+        max-width: none;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .action-buttons {
+        gap: 8px;
+      }
+      
+      button {
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+      
+      .header-title {
+        font-size: 15px;
+      }
+      
+      .model-info {
+        flex-direction: column;
+        gap: 4px;
+      }
+    }
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="bg-gray-50 text-gray-900 antialiased dark:bg-slate-900 dark:text-gray-100">
-    <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+<body>
+  <div id="root">
+    <header>
+      <div class="header-content">
+        <div class="header-title">
+          <i class="fas fa-robot"></i>
+          Mon Gars · IA Locale
+        </div>
+        <div class="model-info">
+          <span>Modèle : Llama 3.2 3B Instruct (MLC)</span>
+          <span class="model-tag">3B · q4f16_1</span>
+        </div>
+      </div>
+      <div class="action-buttons">
+        <button id="theme-btn" class="theme-btn" title="Changer le thème">
+          <i class="fas fa-moon"></i>
+        </button>
+        <button id="load-btn" class="load-btn">
+          <i class="fas fa-download"></i>
+          Charger le modèle
+        </button>
+        <button id="reset-btn" class="reset-btn">
+          <i class="fas fa-redo"></i>
+          Réinitialiser
+        </button>
+      </div>
+    </header>
+    
+    <div class="status-bar">
+      <div class="status-text">
+        <strong>Statut :</strong> 
+        <span id="status-text">En attente de chargement</span>
+      </div>
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+      </div>
+    </div>
+    
+    <main id="messages-container">
+      <div class="welcome-card">
+        <div class="welcome-icon">
+          <i class="fas fa-microchip"></i>
+        </div>
+        <strong>Mon Gars</strong> – Ton assistant IA local<br><br>
+        Fonctionne entièrement dans ton navigateur grâce à <strong>WebGPU</strong>.
+        Aucune donnée ne quitte ton appareil !<br><br>
+        Clique sur <strong>« Charger le modèle »</strong> pour commencer.
+      </div>
+    </main>
+    
+    <footer>
+      <div id="error-container" style="display: none;" class="error-banner">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span id="error-text">Une erreur est survenue</span>
+      </div>
+      
+      <div class="settings-container">
+        <div class="setting-group">
+          <label>
+            Température
+            <span id="temp-value">0.70</span>
+          </label>
+          <input type="range" id="temp-slider" min="0" max="100" value="70" step="1">
+        </div>
+        
+        <div class="setting-group">
+          <label>
+            Tokens maximum
+            <span id="tokens-value">512</span>
+          </label>
+          <input type="number" id="tokens-input" min="64" max="2048" value="512" step="64">
+        </div>
+        
+        <button id="clear-btn" class="clear-btn">
+          <i class="fas fa-trash"></i>
+          Effacer la conversation
+        </button>
+      </div>
+      
+      <div class="chat-input-container">
+        <textarea id="chat-input" placeholder="Charge le modèle avant de discuter..." disabled></textarea>
+        <button id="send-btn" class="send-btn" disabled>
+          <i class="fas fa-paper-plane"></i>
+          Envoyer
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    class LlmService {
+      constructor() {
+        this.status = "idle";
+        this.progress = { text: "", progress: 0 };
+        this.messages = [];
+        this.settings = { temperature: 0.7, maxTokens: 512 };
+        this.engine = null;
+        this.isGenerating = false;
+        this.toasts = [];
+        this.isDarkTheme = false;
+        this.webllmLoaded = false;
+        
+        // DOM elements
+        this.statusTextEl = document.getElementById('status-text');
+        this.progressBarEl = document.getElementById('progress-bar');
+        this.loadBtn = document.getElementById('load-btn');
+        this.sendBtn = document.getElementById('send-btn');
+        this.chatInput = document.getElementById('chat-input');
+        this.messagesContainer = document.getElementById('messages-container');
+        this.errorContainer = document.getElementById('error-container');
+        this.errorTextEl = document.getElementById('error-text');
+        this.tempSlider = document.getElementById('temp-slider');
+        this.tempValue = document.getElementById('temp-value');
+        this.tokensInput = document.getElementById('tokens-input');
+        this.tokensValue = document.getElementById('tokens-value');
+        this.themeBtn = document.getElementById('theme-btn');
+        
+        this.initEventListeners();
+        this.loadSettings();
+        this.applyTheme();
+        this.loadChatHistory();
+      }
+      
+      initEventListeners() {
+        this.loadBtn.addEventListener('click', () => this.initEngine());
+        document.getElementById('reset-btn').addEventListener('click', () => this.resetApp());
+        document.getElementById('clear-btn').addEventListener('click', () => this.clearChat());
+        this.sendBtn.addEventListener('click', () => this.handleSend());
+        this.chatInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            this.handleSend();
+          }
+        });
+        this.chatInput.addEventListener('input', () => this.updateSendButtonState());
+        
+        this.tempSlider.addEventListener('input', (e) => {
+          const value = parseInt(e.target.value, 10) / 100;
+          this.settings.temperature = value;
+          this.tempValue.textContent = value.toFixed(2);
+          this.saveSettings();
+        });
+        
+        this.tokensInput.addEventListener('change', (e) => {
+          let value = parseInt(e.target.value, 10);
+          value = Math.max(64, Math.min(2048, value));
+          this.settings.maxTokens = value;
+          this.tokensValue.textContent = value;
+          e.target.value = value;
+          this.saveSettings();
+        });
+        
+        this.themeBtn.addEventListener('click', () => this.toggleTheme());
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+          // Ctrl/Cmd + K to focus input
+          if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            this.chatInput.focus();
+          }
+        });
+      }
+      
+      async initEngine() {
+        if (this.status === "loading") return;
+        
+        this.setStatus("loading", "Vérification du support WebGPU...");
+        this.setProgress("Vérification WebGPU...", 5);
+        
+        // Check WebGPU support
+        if (!this.isWebGPUSupported()) {
+          this.setStatus("error", "WebGPU non disponible");
+          this.showError("WebGPU n'est pas supporté par ce navigateur. Essaye Chrome, Edge ou un navigateur plus récent.");
+          this.showToast("WebGPU non supporté", "Utilise Chrome ou Edge pour de meilleures performances", "warning");
+          return;
+        }
+        
+        try {
+          // Load WebLLM library if not already loaded
+          if (typeof webllm === 'undefined') {
+            this.setStatus("loading", "Chargement de WebLLM...");
+            this.setProgress("Chargement de la bibliothèque...", 10);
+            
+            await this.loadScript('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.80/dist/webllm.js');
+            
+            this.setProgress("Bibliothèque chargée", 20);
+            await this.delay(500);
+          }
+          
+          // Initialize engine with progress tracking
+          this.setStatus("loading", "Initialisation du moteur IA...");
+          this.setProgress("Initialisation...", 25);
+          
+          const appConfig = {
+            model_list: [
+              {
+                // Repo racine du modèle MLC sur Hugging Face (sans /resolve/main/)
+                model: "https://huggingface.co/mlc-ai/Llama-3.2-3B-Instruct-q4f16_1-MLC",
+                model_id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
+                // WASM compilé pour WebLLM 0.2.80, contexte 128k
+                model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Llama-3.2-3B-Instruct-q4f16_1-ctx128k_cs1k-webgpu.wasm",
+                required_features: ["shader-f16"],
+              }
+            ],
+            // On désactive IndexedDB pour éviter les erreurs internes de stockage
+            useIndexedDBCache: false
+          };
+          
+          const initProgressCallback = (report) => {
+            const progress = Math.round(report.progress * 100);
+            this.setProgress(report.text, 25 + progress * 0.75);
+          };
+          
+          this.engine = await webllm.CreateMLCEngine(
+            "Llama-3.2-3B-Instruct-q4f16_1-MLC",
+            {
+              appConfig,
+              initProgressCallback,
+              logLevel: "INFO"
+            }
+          );
+          
+          // Final setup
+          this.setProgress("Modèle prêt !", 100);
+          this.setStatus("ready", "Modèle chargé et prêt");
+          this.loadBtn.innerHTML = '<i class="fas fa-check"></i> Modèle prêt';
+          this.loadBtn.disabled = true;
+          this.chatInput.disabled = false;
+          this.chatInput.placeholder = "Écris ton message...";
+          this.updateSendButtonState();
+          
+          this.showToast("Modèle chargé", "L'IA locale est maintenant prête à discuter", "success");
+          
+          // Add welcome message from AI if no existing messages
+          if (this.messages.length === 0) {
+            this.addMessage(
+              "assistant",
+              "Salut ! Je suis Mon Gars, ton assistant IA local. Je fonctionne entièrement dans ton navigateur grâce à WebGPU. Aucune donnée ne quitte ton appareil ! Comment puis-je t'aider aujourd'hui ?"
+            );
+          }
+          
+        } catch (error) {
+          console.error("Error initializing engine:", error);
+          this.setStatus("error", "Erreur de chargement");
+          this.showError(`Erreur lors du chargement: ${error.message}`);
+          this.showToast("Erreur de chargement", "Vérifie ta connexion et réessaie", "error");
+        }
+      }
+      
+      loadScript(url) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = url;
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = (err) => reject(new Error("Échec du chargement du script WebLLM"));
+          document.head.appendChild(script);
+        });
+      }
+      
+      isWebGPUSupported() {
+        return typeof navigator !== "undefined" && navigator.gpu !== undefined;
+      }
+      
+      async handleSend() {
+        const input = this.chatInput.value.trim();
+        if (!input || this.status !== "ready" || this.isGenerating) return;
+        
+        this.chatInput.value = '';
+        this.updateSendButtonState();
+        this.addMessage("user", input);
+        
+        // Add assistant message placeholder
+        const assistantId = 'msg-' + Date.now();
+        this.addMessage("assistant", "", assistantId);
+        this.isGenerating = true;
+        this.sendBtn.disabled = true;
+        this.sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Génération...';
+        
+        try {
+          // on garde seulement l'historique récent (20 derniers messages)
+          const recentMessages = this.messages.slice(-20);
+          
+          const messages = [
+            { 
+              role: 'system', 
+              content: "Tu es Mon Gars, un assistant IA utile et sympathique qui fonctionne localement dans le navigateur de l'utilisateur. Sois concis, intelligent et utile. Réponds en français de manière naturelle." 
+            },
+            ...recentMessages
+              .filter(msg => msg.role !== 'system')
+              .map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'assistant',
+                content: msg.content
+              }))
+          ];
+          
+          const completion = await this.engine.chat.completions.create({
+            messages: messages,
+            stream: false,
+            temperature: this.settings.temperature,
+            max_tokens: this.settings.maxTokens
+          });
+          
+          const response =
+            (completion &&
+             completion.choices &&
+             completion.choices[0] &&
+             completion.choices[0].message &&
+             completion.choices[0].message.content) ||
+            "Je n'ai pas pu générer de réponse. Peux-tu reformuler ta question ?";
+          
+          // Update the assistant message with the response
+          this.updateMessage(assistantId, response);
+          
+        } catch (error) {
+          console.error("Error generating response:", error);
+          this.updateMessage(
+            assistantId,
+            "Désolé, une erreur s'est produite lors de la génération de ma réponse. Peux-tu réessayer ?"
+          );
+          this.showToast("Erreur de génération", "Réessaie dans un moment", "error");
+        } finally {
+          this.isGenerating = false;
+          this.sendBtn.disabled = false;
+          this.sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Envoyer';
+        }
+      }
+      
+      addMessage(role, content, id = 'msg-' + Date.now()) {
+        const message = { id, role, content, timestamp: new Date() };
+        this.messages.push(message);
+        this.renderMessage(message);
+        this.saveChatHistory();
+      }
+      
+      updateMessage(id, content) {
+        const message = this.messages.find(msg => msg.id === id);
+        if (message) {
+          message.content = content;
+          this.renderMessage(message, true);
+          this.saveChatHistory();
+        }
+      }
+      
+      renderMessage(message, update = false) {
+        if (update) {
+          const existingEl = document.getElementById(message.id);
+          if (existingEl) {
+            const contentEl = existingEl.querySelector('.message-content');
+            contentEl.textContent = message.content;
+            return;
+          }
+        }
+        
+        const messageEl = document.createElement('div');
+        messageEl.className = `message ${message.role}-message`;
+        messageEl.id = message.id;
+        
+        const now = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp);
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const timeStr = `${hours}:${minutes}`;
+        
+        messageEl.innerHTML = `
+          <div class="message-header">
+            <span>${message.role === 'user' ? 'Toi' : 'Mon Gars'}</span>
+            <span>${timeStr}</span>
+          </div>
+          <div class="message-content">${this.escapeHtml(message.content)}</div>
+          <div class="message-actions">
+            <button class="action-btn copy-btn" title="Copier le message">
+              <i class="fas fa-copy"></i>
+            </button>
+            ${message.role === 'user' ? `
+            <button class="action-btn edit-btn" title="Rééditer ce message">
+              <i class="fas fa-edit"></i>
+            </button>
+            ` : ''}
+          </div>
+        `;
+        
+        // Add event listeners for action buttons
+        const copyBtn = messageEl.querySelector('.copy-btn');
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(message.content);
+          this.showToast("Message copié", "Le message a été copié dans le presse-papier", "success");
+        });
+        
+        if (message.role === 'user') {
+          const editBtn = messageEl.querySelector('.edit-btn');
+          editBtn.addEventListener('click', () => {
+            this.chatInput.value = message.content;
+            this.chatInput.focus();
+            this.updateSendButtonState();
+          });
+        }
+        
+        this.messagesContainer.appendChild(messageEl);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+      }
+      
+      clearChat() {
+        if (confirm("Effacer toute la conversation ? Cette action ne peut pas être annulée.")) {
+          this.messages = [];
+          this.messagesContainer.innerHTML = `
+            <div class="welcome-card">
+              <div class="welcome-icon">
+                <i class="fas fa-microchip"></i>
+              </div>
+              Conversation effacée. Tape un nouveau message pour recommencer !
+            </div>
+          `;
+          this.saveChatHistory();
+          this.showToast("Conversation effacée", "La conversation a été supprimée", "success");
+        }
+      }
+      
+      resetApp() {
+        if (confirm("Réinitialiser complètement l'application ? Cela effacera la conversation et déchargera le modèle.")) {
+          if (this.engine && typeof this.engine.unload === "function") {
+            try {
+              this.engine.unload();
+            } catch (e) {
+              console.warn("Erreur lors du déchargement du modèle:", e);
+            }
+          }
+          this.engine = null;
+          this.status = "idle";
+          this.isGenerating = false;
+          this.setProgress("", 0);
+          this.setStatus("idle", "En attente de chargement");
+          this.loadBtn.innerHTML = '<i class="fas fa-download"></i> Charger le modèle';
+          this.loadBtn.disabled = false;
+          this.chatInput.disabled = true;
+          this.chatInput.placeholder = "Charge le modèle avant de discuter...";
+          this.sendBtn.disabled = true;
+          this.sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Envoyer';
+          this.clearChat();
+        }
+      }
+      
+      showError(message) {
+        this.errorTextEl.textContent = message;
+        this.errorContainer.style.display = 'flex';
+        setTimeout(() => {
+          this.errorContainer.style.display = 'none';
+        }, 8000);
+      }
+      
+      showToast(title, message, type = "info") {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+          <div class="toast-icon">
+            ${
+              type === "success"
+                ? '<i class="fas fa-check-circle"></i>' 
+                : type === "error"
+                ? '<i class="fas fa-exclamation-circle"></i>' 
+                : '<i class="fas fa-info-circle"></i>'
+            }
+          </div>
+          <div class="toast-content">
+            <div class="toast-title">${title}</div>
+            <div class="toast-message">${message}</div>
+          </div>
+          <button class="toast-close">
+            <i class="fas fa-times"></i>
+          </button>
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // Close button
+        const closeBtn = toast.querySelector('.toast-close');
+        closeBtn.addEventListener('click', () => {
+          toast.classList.remove('show');
+          setTimeout(() => {
+            if (toast.parentNode) {
+              toast.parentNode.removeChild(toast);
+            }
+          }, 300);
+        });
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+          if (toast.parentNode) {
+            toast.classList.remove('show');
+            setTimeout(() => {
+              if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+              }
+            }, 300);
+          }
+        }, 5000);
+      }
+      
+      setStatus(status, text) {
+        this.status = status;
+        this.statusTextEl.textContent = text;
+        
+        if (status === 'error') {
+          this.progressBarEl.classList.add('progress-error');
+        } else {
+          this.progressBarEl.classList.remove('progress-error');
+        }
+      }
+      
+      setProgress(text, progress) {
+        this.progress = { text, progress };
+        const clamped = Math.min(100, Math.max(0, progress));
+        this.progressBarEl.style.width = `${clamped}%`;
+        if (text) {
+          this.statusTextEl.textContent = text;
+        }
+      }
+      
+      updateSendButtonState() {
+        const input = this.chatInput.value.trim();
+        this.sendBtn.disabled = !input || this.status !== "ready" || this.isGenerating;
+      }
+      
+      toggleTheme() {
+        this.isDarkTheme = !this.isDarkTheme;
+        this.applyTheme();
+        this.saveSettings();
+      }
+      
+      applyTheme() {
+        if (this.isDarkTheme) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          this.themeBtn.innerHTML = '<i class="fas fa-sun"></i>';
+          this.themeBtn.title = "Passer en mode clair";
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+          this.themeBtn.innerHTML = '<i class="fas fa-moon"></i>';
+          this.themeBtn.title = "Passer en mode sombre";
+        }
+      }
+      
+      saveSettings() {
+        try {
+          const settings = {
+            temperature: this.settings.temperature,
+            maxTokens: this.settings.maxTokens,
+            isDarkTheme: this.isDarkTheme
+          };
+          localStorage.setItem('monGarsSettings', JSON.stringify(settings));
+        } catch (e) {
+          console.warn("Could not save settings:", e);
+        }
+      }
+      
+      loadSettings() {
+        try {
+          const raw = localStorage.getItem('monGarsSettings');
+          if (!raw) return;
+          const settings = JSON.parse(raw);
+          if (settings.temperature !== undefined) {
+            this.settings.temperature = settings.temperature;
+            this.tempSlider.value = Math.round(settings.temperature * 100);
+            this.tempValue.textContent = settings.temperature.toFixed(2);
+          }
+          if (settings.maxTokens !== undefined) {
+            this.settings.maxTokens = settings.maxTokens;
+            this.tokensInput.value = settings.maxTokens;
+            this.tokensValue.textContent = settings.maxTokens;
+          }
+          if (settings.isDarkTheme !== undefined) {
+            this.isDarkTheme = settings.isDarkTheme;
+          }
+        } catch (e) {
+          console.warn("Could not load settings:", e);
+        }
+      }
+      
+      saveChatHistory() {
+        try {
+          localStorage.setItem('monGarsChatHistory', JSON.stringify(this.messages));
+        } catch (e) {
+          console.warn("Could not save chat history:", e);
+        }
+      }
+      
+      loadChatHistory() {
+        try {
+          const raw = localStorage.getItem('monGarsChatHistory');
+          if (!raw) return;
+          const history = JSON.parse(raw);
+          if (Array.isArray(history) && history.length > 0) {
+            this.messages = history.map(msg => ({
+              ...msg,
+              timestamp: new Date(msg.timestamp)
+            }));
+            
+            // Clear the welcome message and render history
+            this.messagesContainer.innerHTML = '';
+            this.messages.forEach(msg => this.renderMessage(msg));
+            
+            if (this.messages.length > 0) {
+              this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+          }
+        } catch (e) {
+          console.warn("Could not load chat history:", e);
+        }
+      }
+      
+      delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+      
+      escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, m => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[m]));
+      }
+    }
+    
+    // Initialize the app when DOM is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+      window.llmApp = new LlmService();
+    });
+  </script>
 </body>
 </html>
