@@ -269,35 +269,51 @@ class LlmService {
     const minutes = now.getMinutes().toString().padStart(2, '0');
     const timeStr = `${hours}:${minutes}`;
 
-    messageEl.innerHTML = `
-      <div class="message-header">
-        <span>${message.role === 'user' ? 'Toi' : 'Mon Gars'}</span>
-        <span>${timeStr}</span>
-      </div>
-      <div class="message-content">${this.escapeHtml(message.content)}</div>
-      <div class="message-actions">
-        <button class="action-btn copy-btn" title="Copier le message">
-          <i class="fas fa-copy"></i>
-        </button>
-        ${message.role === 'user' ? `
-        <button class="action-btn edit-btn" title="Rééditer ce message">
-          <i class="fas fa-edit"></i>
-        </button>
-        ` : ''}
-      </div>
-    `;
+    const headerEl = document.createElement('div');
+    headerEl.className = 'message-header';
 
-    const copyBtn = messageEl.querySelector('.copy-btn');
-    copyBtn.addEventListener('click', () => this.handleCopy(message.content));
+    const authorEl = document.createElement('span');
+    authorEl.textContent = message.role === 'user' ? 'Toi' : 'Mon Gars';
+
+    const timeEl = document.createElement('span');
+    timeEl.textContent = timeStr;
+
+    headerEl.append(authorEl, timeEl);
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'message-content';
+    contentEl.textContent = message.content;
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'message-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'action-btn copy-btn';
+    copyBtn.title = 'Copier le message';
+    const copyIcon = document.createElement('i');
+    copyIcon.className = 'fas fa-copy';
+    copyBtn.appendChild(copyIcon);
+    actionsEl.appendChild(copyBtn);
 
     if (message.role === 'user') {
-      const editBtn = messageEl.querySelector('.edit-btn');
+      const editBtn = document.createElement('button');
+      editBtn.className = 'action-btn edit-btn';
+      editBtn.title = 'Rééditer ce message';
+      const editIcon = document.createElement('i');
+      editIcon.className = 'fas fa-edit';
+      editBtn.appendChild(editIcon);
+      actionsEl.appendChild(editBtn);
+
       editBtn.addEventListener('click', () => {
         this.chatInput.value = message.content;
         this.chatInput.focus();
         this.updateSendButtonState();
       });
     }
+
+    messageEl.append(headerEl, contentEl, actionsEl);
+
+    copyBtn.addEventListener('click', () => this.handleCopy(message.content));
 
     this.messagesContainer.appendChild(messageEl);
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
@@ -318,8 +334,8 @@ class LlmService {
     }
   }
 
-  clearChat() {
-    if (confirm("Effacer toute la conversation ? Cette action ne peut pas être annulée.")) {
+  clearChat(force = false) {
+    if (force || confirm("Effacer toute la conversation ? Cette action ne peut pas être annulée.")) {
       this.messages = [];
       this.messagesContainer.innerHTML = `
         <div class="welcome-card">
@@ -330,7 +346,9 @@ class LlmService {
         </div>
       `;
       this.saveChatHistory();
-      this.showToast("Conversation effacée", "La conversation a été supprimée", "success");
+      if (!force) {
+        this.showToast("Conversation effacée", "La conversation a été supprimée", "success");
+      }
     }
   }
 
@@ -354,7 +372,7 @@ class LlmService {
       this.chatInput.placeholder = "Charge le modèle avant de discuter...";
       this.sendBtn.disabled = true;
       this.sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Envoyer';
-      this.clearChat();
+      this.clearChat(true);
     }
   }
 
@@ -369,51 +387,47 @@ class LlmService {
   showToast(title, message, type = "info") {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `
-      <div class="toast-icon">
-        ${
-          type === "success"
-            ? '<i class="fas fa-check-circle"></i>'
-            : type === "error"
-              ? '<i class="fas fa-exclamation-circle"></i>'
-              : type === "warning"
-                ? '<i class="fas fa-info-circle"></i>'
-                : '<i class="fas fa-info-circle"></i>'
-        }
-      </div>
-      <div class="toast-content">
-        <div class="toast-title">${title}</div>
-        <div class="toast-message">${message}</div>
-      </div>
-      <button class="toast-close">
-        <i class="fas fa-times"></i>
-      </button>
-    `;
 
+    const iconWrapper = document.createElement('div');
+    iconWrapper.className = 'toast-icon';
+    const icon = document.createElement('i');
+    icon.className =
+      type === "success"
+        ? 'fas fa-check-circle'
+        : type === "error"
+          ? 'fas fa-exclamation-circle'
+          : 'fas fa-info-circle';
+    iconWrapper.appendChild(icon);
+
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'toast-content';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'toast-title';
+    titleEl.textContent = title;
+    const messageEl = document.createElement('div');
+    messageEl.className = 'toast-message';
+    messageEl.textContent = message;
+    contentWrapper.append(titleEl, messageEl);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    const closeIcon = document.createElement('i');
+    closeIcon.className = 'fas fa-times';
+    closeBtn.appendChild(closeIcon);
+
+    toast.append(iconWrapper, contentWrapper, closeBtn);
     document.body.appendChild(toast);
 
-    setTimeout(() => toast.classList.add('show'), 10);
-
-    const closeBtn = toast.querySelector('.toast-close');
-    closeBtn.addEventListener('click', () => {
+    const closeToast = () => {
+      if (!toast.parentNode) return;
       toast.classList.remove('show');
-      setTimeout(() => {
-        if (toast.parentNode) {
-          toast.parentNode.removeChild(toast);
-        }
-      }, 300);
-    });
+      setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
+    };
 
-    setTimeout(() => {
-      if (toast.parentNode) {
-        toast.classList.remove('show');
-        setTimeout(() => {
-          if (toast.parentNode) {
-            toast.parentNode.removeChild(toast);
-          }
-        }, 300);
-      }
-    }, 5000);
+    setTimeout(() => toast.classList.add('show'), 10);
+    closeBtn.addEventListener('click', closeToast);
+
+    setTimeout(closeToast, 5000);
   }
 
   setStatus(status, text) {
@@ -543,17 +557,8 @@ class LlmService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, m => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[m]));
-  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  window.llmApp = new LlmService();
+  new LlmService();
 });
