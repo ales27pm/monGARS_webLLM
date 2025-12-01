@@ -1,127 +1,103 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mon Gars - Offline AI Assistant</title>
-    <meta name="description" content="Privacy-first AI assistant running completely offline in your browser">
-    <meta name="theme-color" content="#10b981">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #10b981;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            -webkit-font-smoothing: antialiased;
-        }
-        .safe-area-bottom {
-            padding-bottom: env(safe-area-inset-bottom);
-        }
-        
-        /* Animations */
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        .animate-shimmer {
-            animation: shimmer 1.5s infinite;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-            animation: fadeIn 0.3s ease-out;
-        }
-        
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.4); }
-            50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); }
-        }
-        .animate-pulse-glow {
-            animation: pulse-glow 2s infinite;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .spinner {
-            border: 2px solid #f3f4f6;
-            border-top: 2px solid var(--primary);
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-            background: #475569;
-        }
-        
-        /* Utilities */
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-        .dark .glass-effect {
-            background: rgba(15, 23, 42, 0.8);
-        }
-    </style>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        emerald: {
-                            50: '#ecfdf5',
-                            100: '#d1fae5',
-                            200: '#a7f3d0',
-                            300: '#6ee7b7',
-                            400: '#34d399',
-                            500: '#10b981',
-                            600: '#059669',
-                            700: '#047857',
-                            800: '#065f46',
-                            900: '#064e3b',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-<script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/"
-  }
-}
-</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mon Gars – Assistant IA Local</title>
+  <meta name="description" content="Assistant IA fonctionnant entièrement localement dans votre navigateur avec WebGPU">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="stylesheet" href="./mon-gars.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="bg-gray-50 text-gray-900 antialiased dark:bg-slate-900 dark:text-gray-100">
-    <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+<body>
+  <div id="root">
+    <header>
+      <div class="header-content">
+        <div class="header-title">
+          <i class="fas fa-robot"></i>
+          Mon Gars · IA Locale
+        </div>
+        <div class="model-info">
+          <span>Modèle : Llama 3.2 3B Instruct (MLC)</span>
+          <span class="model-tag">3B · q4f16_1</span>
+        </div>
+      </div>
+      <div class="action-buttons">
+        <button id="theme-btn" class="theme-btn" title="Changer le thème">
+          <i class="fas fa-moon"></i>
+        </button>
+        <button id="load-btn" class="load-btn">
+          <i class="fas fa-download"></i>
+          Charger le modèle
+        </button>
+        <button id="reset-btn" class="reset-btn">
+          <i class="fas fa-redo"></i>
+          Réinitialiser
+        </button>
+      </div>
+    </header>
+    
+    <div class="status-bar">
+      <div class="status-text">
+        <strong>Statut :</strong> 
+        <span id="status-text">En attente de chargement</span>
+      </div>
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+      </div>
+    </div>
+    
+    <main id="messages-container">
+      <div class="welcome-card">
+        <div class="welcome-icon">
+          <i class="fas fa-microchip"></i>
+        </div>
+        <strong>Mon Gars</strong> – Ton assistant IA local<br><br>
+        Fonctionne entièrement dans ton navigateur grâce à <strong>WebGPU</strong>.
+        Aucune donnée ne quitte ton appareil !<br><br>
+        Clique sur <strong>« Charger le modèle »</strong> pour commencer.
+      </div>
+    </main>
+    
+    <footer>
+      <div id="error-container" style="display: none;" class="error-banner">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span id="error-text">Une erreur est survenue</span>
+      </div>
+      
+      <div class="settings-container">
+        <div class="setting-group">
+          <label>
+            Température
+            <span id="temp-value">0.70</span>
+          </label>
+          <input type="range" id="temp-slider" min="0" max="100" value="70" step="1">
+        </div>
+        
+        <div class="setting-group">
+          <label>
+            Tokens maximum
+            <span id="tokens-value">512</span>
+          </label>
+          <input type="number" id="tokens-input" min="64" max="2048" value="512" step="64">
+        </div>
+        
+        <button id="clear-btn" class="clear-btn">
+          <i class="fas fa-trash"></i>
+          Effacer la conversation
+        </button>
+      </div>
+      
+      <div class="chat-input-container">
+        <textarea id="chat-input" placeholder="Charge le modèle avant de discuter..." disabled></textarea>
+        <button id="send-btn" class="send-btn" disabled>
+          <i class="fas fa-paper-plane"></i>
+          Envoyer
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./mon-gars.js" type="module" defer></script>
 </body>
 </html>
