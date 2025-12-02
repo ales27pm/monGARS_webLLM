@@ -21,6 +21,15 @@
       tailwindScript.src = tailwindSrc;
       tailwindScript.async = false;
 
+      const loadFallback = () => {
+        if (document.getElementById("tailwind-fallback")) return;
+        const fallback = document.createElement("link");
+        fallback.id = "tailwind-fallback";
+        fallback.rel = "stylesheet";
+        fallback.href = "/tailwind-fallback.css";
+        document.head.appendChild(fallback);
+      };
+
       const descriptor = Object.getOwnPropertyDescriptor(document, "currentScript");
       const restoreCurrentScript = () => {
         try {
@@ -50,8 +59,37 @@
         }
       }
 
-      tailwindScript.addEventListener("load", restoreCurrentScript);
-      tailwindScript.addEventListener("error", restoreCurrentScript);
+      tailwindScript.addEventListener("load", () => {
+        restoreCurrentScript();
+
+        // If Tailwind is blocked (e.g., in an offline WebView), inject a local fallback stylesheet.
+        requestAnimationFrame(() => {
+          const probe = document.createElement("div");
+          probe.className = "bg-slate-50";
+          document.body.appendChild(probe);
+          const hasTailwind = getComputedStyle(probe).backgroundColor !== "rgba(0, 0, 0, 0)";
+          probe.remove();
+          if (!hasTailwind) {
+            console.warn("Tailwind CDN loaded but utilities are unavailable. Using fallback stylesheet.");
+            loadFallback();
+          }
+        });
+      });
+
+      tailwindScript.addEventListener("error", () => {
+        restoreCurrentScript();
+        console.warn("Tailwind CDN failed to load. Using fallback stylesheet.");
+        loadFallback();
+      });
+
+      // If the CDN never resolves (e.g., blocked network), guarantee we recover after a short delay.
+      window.setTimeout(() => {
+        const fallbackAlreadyLoaded = document.getElementById("tailwind-fallback");
+        if (!fallbackAlreadyLoaded && !window.tailwind) {
+          console.warn("Tailwind CDN timed out. Using fallback stylesheet.");
+          loadFallback();
+        }
+      }, 2500);
 
       document.head.appendChild(tailwindScript);
     })();
