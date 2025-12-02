@@ -125,6 +125,21 @@ export type DecisionResult = {
   rationale: string;
   response?: string;
   warnings: string[];
+  diagnostics: {
+    source: NormalizationMeta["source"];
+    parsingIssueSummary?: string;
+    hadPlan: boolean;
+    hadRationale: boolean;
+    actionBeforeSwitch?: NormalizationMeta["actionBeforeSwitch"];
+    actionAfterSwitch: NormalizationMeta["actionAfterSwitch"];
+    finalAction: NormalizationMeta["finalAction"];
+    actionFlip?: NormalizationMeta["actionFlip"];
+    hasQuery: boolean;
+    hasResponse: boolean;
+    responseMissing?: boolean;
+    responseMissingReason?: string;
+    responseRecovered?: boolean;
+  };
 };
 
 const formatZodIssues = (issues: z.ZodIssue[]) =>
@@ -156,8 +171,23 @@ type NormalizationMeta = {
   actionFlip?: "searchToRespond" | "respondToSearch";
   hasQuery: boolean;
   hasResponse: boolean;
+  responseMissing?: boolean;
+  responseMissingReason?: string;
+  responseRecovered?: boolean;
   fallbackQueryMissing?: boolean;
   fallbackResponseMissing?: boolean;
+};
+
+const recoverLooseResponse = (raw: string): string | undefined => {
+  if (!raw.trim()) return undefined;
+
+  const jsonMatch = raw.match(/"response"\s*:\s*"([\s\S]*?)"\s*[},]/i);
+  if (jsonMatch?.[1]?.trim()) {
+    return jsonMatch[1].trim();
+  }
+
+  const looseMatch = raw.match(/response\s*[:=]\s*([^\n{}]+)/i);
+  return looseMatch?.[1]?.trim();
 };
 
 const normalizeDecisionCore = (
@@ -168,28 +198,48 @@ const normalizeDecisionCore = (
 
   if (decision.success) {
     const normalizedQuery = decision.data.query?.trim();
-    const normalizedResponse = decision.data.response?.trim();
+    const normalizedResponse =
+      decision.data.response?.trim() || recoverLooseResponse(raw);
     const normalizedPlan = normalizePlan(decision.data.plan);
     const providedPlan = decision.data.plan?.trim() || "";
     const providedRationale = decision.data.rationale?.trim();
 
     let action = decision.data.action;
     let actionFlip: NormalizationMeta["actionFlip"];
+    let responseMissing = false;
+    let responseMissingReason: NormalizationMeta["responseMissingReason"];
+    let responseRecovered = false;
 
     // If the model intends to search but provides no query, switch to respond.
-    // If it intends to respond but provides no response, switch to search.
+    // For respond without a response, keep respond and let the answering pipeline
+    // generate the final message to avoid unnecessary searches.
     if (action === "search" && !normalizedQuery) {
       action = "respond";
       actionFlip = "searchToRespond";
-    } else if (action === "respond" && !normalizedResponse) {
-      action = "search";
-      actionFlip = "respondToSearch";
     }
 
     const wantsSearch = action === "search" && !!normalizedQuery;
     const finalAction: "search" | "respond" = wantsSearch
       ? "search"
       : "respond";
+
+    const hadResponseField = Object.prototype.hasOwnProperty.call(
+      parsed,
+      "response",
+    );
+
+    if (finalAction === "respond" && !normalizedResponse) {
+      responseMissing = true;
+      responseMissingReason = hadResponseField
+        ? "Champ response vide dans le JSON du modèle."
+        : "Champ response absent de la sortie du modèle.";
+    } else if (
+      finalAction === "respond" &&
+      !decision.data.response &&
+      normalizedResponse
+    ) {
+      responseRecovered = true;
+    }
 
     const result: Omit<DecisionResult, "warnings"> = {
       action: finalAction,
@@ -220,6 +270,9 @@ const normalizeDecisionCore = (
       actionFlip,
       hasQuery: !!normalizedQuery,
       hasResponse: !!normalizedResponse,
+      responseMissing,
+      responseMissingReason,
+      responseRecovered,
     };
 
     return { result, meta };
@@ -249,6 +302,12 @@ const normalizeDecisionCore = (
     finalAction: fallbackAction as "search" | "respond",
     hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
     hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
+    responseMissing:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    responseMissingReason:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim()
+        ? "Réponse absente dans la sortie non structurée du modèle."
+        : undefined,
     fallbackQueryMissing:
       fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
     fallbackResponseMissing:
@@ -306,6 +365,20 @@ const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
     warnings.push("Justification absente, complétée par défaut.");
   }
 
+  if (meta.finalAction === "respond" && meta.responseMissing) {
+    warnings.push(
+      meta.responseMissingReason
+        ? `Réponse finale absente : ${meta.responseMissingReason}`
+        : "Réponse finale absente, génération via le pipeline de réponse directe.",
+    );
+  }
+
+  if (meta.responseRecovered) {
+    warnings.push(
+      "Réponse récupérée à partir du texte non structuré du modèle (hors JSON).",
+    );
+  }
+
   if (meta.actionFlip === "searchToRespond") {
     warnings.push("Action inversée en respond faute de requête de recherche.");
   } else if (meta.actionFlip === "respondToSearch") {
@@ -327,7 +400,25 @@ const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
 export const normalizeDecision = (raw: string): DecisionResult => {
   const { result, meta } = normalizeDecisionCore(raw);
   const warnings = buildDecisionWarnings(meta);
-  return { ...result, warnings } satisfies DecisionResult;
+  const diagnostics: DecisionResult["diagnostics"] = {
+    source: meta.source,
+    parsingIssueSummary: meta.parsingIssues
+      ?.map((issue) => issue.message)
+      .join(" | "),
+    hadPlan: meta.hadPlan,
+    hadRationale: meta.hadRationale,
+    actionBeforeSwitch: meta.actionBeforeSwitch,
+    actionAfterSwitch: meta.actionAfterSwitch,
+    finalAction: meta.finalAction,
+    actionFlip: meta.actionFlip,
+    hasQuery: meta.hasQuery,
+    hasResponse: meta.hasResponse,
+    responseMissing: meta.responseMissing,
+    responseMissingReason: meta.responseMissingReason,
+    responseRecovered: meta.responseRecovered,
+  };
+
+  return { ...result, warnings, diagnostics } satisfies DecisionResult;
 };
 
 export const buildDecisionMessages = (
