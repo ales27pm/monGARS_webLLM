@@ -18,6 +18,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
+import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
   Config,
@@ -73,6 +74,8 @@ const App: React.FC = () => {
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+
+  const { buildMemoryContext, recordExchange } = useSemanticMemory(messages);
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -525,6 +528,10 @@ Règles :
 
     try {
       const conversationForDecision = [...messages, userMessage];
+      const memoryContext = await buildMemoryContext(inputText);
+      const memoryPrefix = memoryContext
+        ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
+        : "";
       const decision = await decideAction(
         engine,
         inputText,
@@ -551,7 +558,7 @@ Règles :
           decisionPlan,
           config,
           conversationForDecision,
-          `${inputText}\n\n` +
+          `${memoryPrefix}${inputText}\n\n` +
             `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
             `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
         );
@@ -580,7 +587,7 @@ Règles :
             decisionPlan,
             config,
             conversationForDecision,
-            inputText,
+            `${memoryPrefix}${inputText}`,
           );
 
           finalAiResponse = await streamAnswer(
@@ -604,6 +611,11 @@ Règles :
       if (updatedMessages) {
         saveConversation(updatedMessages);
       }
+
+      await recordExchange(userMessage, {
+        ...aiMessagePlaceholder,
+        content: finalAiResponse,
+      });
     } catch (err: any) {
       console.error("Chat / tool error:", err);
       addToast(
