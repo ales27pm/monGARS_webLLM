@@ -272,31 +272,102 @@ const promptCases: PromptCase[] = [
       warningSubstrings: ["Échec de parsing JSON"],
     },
   },
+  {
+    id: "climate-2027-search-hint",
+    description:
+      "Réponse directe sur un sujet futuriste : le pipeline doit conserver respond mais signaler le besoin de recherche implicite.",
+    userInput:
+      "Que disent les dernières projections climatiques 2027 du GIEC? Inclure les mises à jour récentes.",
+    history: [
+      buildMessage(
+        "h10",
+        "assistant",
+        "Je peux résumer ce que je connais si tu veux.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"respond","plan":"Répondre rapidement;Synthèse courte","rationale":"Mises à jour récentes nécessaires","response":"Synthèse basée sur les données 2024."}',
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: false,
+      warningSubstrings: [
+        "Plan Tree-of-Thought insuffisant",
+        "Justification suggère search",
+      ],
+    },
+  },
+  {
+    id: "ctf-offline-loose-plan",
+    description:
+      "Plan succinct hors JSON pour un challenge CTF sans Internet : la récupération doit préserver la réponse tout en signalant le fallback.",
+    userInput:
+      "Donne un plan succinct pour lancer un challenge capture-the-flag étudiant sans accès internet.",
+    history: [
+      buildMessage("h11", "user", "Contrainte : l'événement est hors ligne."),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      "action: respond\nplan: plan rapide\nresponse: 1) Préparer des VM locales 2) Définir des défis 3) Tester et lancer",
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: false,
+      warningSubstrings: ["Échec de parsing JSON"],
+    },
+  },
+  {
+    id: "tls-quic-contradiction",
+    description:
+      "Justification oriente vers une recherche mais l'action est respond : le pipeline doit avertir de la contradiction.",
+    userInput:
+      "Dois-je chercher des sources externes pour comparer TLS 1.3 et QUIC ou puis-je répondre directement?",
+    history: [
+      buildMessage(
+        "h12",
+        "assistant",
+        "Je peux comparer rapidement si besoin.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"respond","plan":"Comparer rapidement","rationale":"Chercher des sources externes pour être sûr","response":"Résumé court sans sources."}',
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: false,
+      warningSubstrings: [
+        "Plan Tree-of-Thought insuffisant",
+        "Justification suggère search",
+      ],
+    },
+  },
 ];
 
 type NextPrompt = { title: string; prompt: string; objective: string };
 
 const nextRoundPrompts: NextPrompt[] = [
   {
-    title: "Recherche requise malgré réponse fournie",
+    title: "Recherche obligatoire sans requête",
     prompt:
-      "Que disent les dernières projections climatiques 2027 du GIEC? Inclure les mises à jour récentes.",
+      "Donne-moi les derniers chiffres d'inflation publiés ce mois-ci pour la zone euro avec une source.",
     objective:
-      "Vérifier que le pipeline signale les besoins de recherche pour des données futures même si le modèle répond directement.",
+      "Vérifier que le pipeline force un passage en search ou signale l'absence de requête lorsque des données très fraîches sont demandées.",
   },
   {
-    title: "Plan minimal et réponse libre",
+    title: "Réponse libre avec justification ambiguë",
     prompt:
-      "Donne un plan succinct pour lancer un challenge capture-the-flag étudiant sans accès internet.",
+      "Je pense avoir déjà les infos, mais résume en deux phrases les nouveautés de Python 3.13 sans chercher.",
     objective:
-      "Tester la récupération de réponse hors JSON avec un plan incomplet et l'émission d'avertissements adaptés.",
+      "Tester la détection d'indices contradictoires entre le refus implicite de recherche et une justification qui mentionne des nouveautés récentes.",
   },
   {
-    title: "Contradiction entre justification et action",
+    title: "Plan détaillé pour action search",
     prompt:
-      "Dois-je chercher des sources externes pour comparer TLS 1.3 et QUIC ou puis-je répondre directement?",
+      "Liste un plan d'investigation en 4 étapes avant de rechercher des correctifs récents pour OpenSSL.",
     objective:
-      "S'assurer que les contradictions entre justification et action sont détectées et signalées par le pipeline.",
+      "Valider que le plan ToT reste complet quand l'action finale est search et qu'une réponse accidentelle doit être ignorée.",
   },
 ];
 

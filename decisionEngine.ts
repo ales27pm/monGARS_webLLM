@@ -200,18 +200,32 @@ const detectActionHint = (
   if (!value?.trim()) return undefined;
 
   const normalized = value.toLowerCase();
+  const normalizedAscii = normalized
+    .normalize("NFD")
+    .replace(/[^\p{ASCII}]/gu, "")
+    .replace(/[\u0300-\u036f]/g, "");
   const searchHints = [
     "recherche",
     "chercher",
     "source",
     "actualit",
+    "actualite",
     "donnée fraîche",
+    "donnee fraiche",
+    "donnees recentes",
+    "mises a jour",
+    "mise a jour",
+    "mises à jour",
     "mise à jour",
     "source récente",
+    "source recente",
   ];
   const respondHints = ["répondre", "réponse directe", "synthèse", "rédiger"];
 
   if (searchHints.some((hint) => normalized.includes(hint))) {
+    return "search";
+  }
+  if (searchHints.some((hint) => normalizedAscii.includes(hint))) {
     return "search";
   }
   if (respondHints.some((hint) => normalized.includes(hint))) {
