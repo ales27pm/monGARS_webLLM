@@ -159,9 +159,9 @@ const App: React.FC = () => {
   const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
     null,
   );
-  const [webGPUAvailable, setWebGPUAvailable] = useState<
-    boolean | undefined
-  >(undefined);
+  const [webGPUAvailable, setWebGPUAvailable] = useState<boolean | undefined>(
+    undefined,
+  );
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -429,7 +429,7 @@ Règles :
 
         addToast(
           "Moteur chargé",
-          `Modèle ${selectedModel.replace("-q4f16_1-MLC", "")} prêt.`,
+          `Modèle ${selectedModel.replace(/-q4f\d+_1-MLC$/, "")} prêt.`,
           "success",
         );
 
@@ -1038,10 +1038,7 @@ Règles :
           config={config}
         />
 
-        <CapabilityPills
-          config={config}
-          webGPUAvailable={webGPUAvailable}
-        />
+        <CapabilityPills config={config} webGPUAvailable={webGPUAvailable} />
 
         <div className="w-full max-w-4xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-700/60 rounded-3xl shadow-lg shadow-slate-900/5 dark:shadow-black/30 backdrop-blur-sm flex flex-col overflow-hidden">
           <StatusBar
