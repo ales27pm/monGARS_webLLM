@@ -17,14 +17,18 @@ export async function ensurePipeline(
   if (!cached) {
     const device =
       typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
-    cached = pipeline(type as any, model, {
+    const pipelinePromise = pipeline(type as any, model, {
       quantized: true,
       device,
       progress_callback: (status) => {
         console.info(`[speech] ${type} loading`, status);
       },
       ...(options || {}),
+    }).catch((err) => {
+      pipelineCache.delete(key);
+      throw err;
     });
+    cached = pipelinePromise;
     pipelineCache.set(key, cached);
   }
 

@@ -128,7 +128,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         resetPlayback();
         const tts = await ensurePipeline("text-to-speech", TTS_MODEL);
         const output = await tts(text, {
-          speaker_id: "parler-tts/multi-speaker", // default speaker embedding
+          description: "French voice, clear and warm",
         });
         const audioArray = output.audio as Float32Array;
         const sampleRate = (output as any).sampling_rate || 22050;
