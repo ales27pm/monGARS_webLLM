@@ -446,7 +446,7 @@ const nextRoundPrompts: NextPrompt[] = [
 
 const evaluateExpectations = (
   expectations: PromptCaseExpectation,
-  decision = normalizeDecision(""),
+  decision: ReturnType<typeof normalizeDecision>,
 ): string[] => {
   const mismatches: string[] = [];
 
