@@ -156,6 +156,6 @@ export async function decideAction(
     signal,
   });
 
-  const rawDecision = decisionCompletion.choices[0].message.content.trim();
+  const rawDecision = decisionCompletion.choices[0]?.message?.content?.trim() ?? "";
   return normalizeDecision(rawDecision);
 }
