@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
+import { buildContext } from "./contextEngine";
+import type {
+  ContextBuildResult,
+  SemanticMemoryClient,
+} from "./contextEngine";
 import type { Config, Message, MLCEngine } from "./types";
 import { DEFAULT_MODEL_ID } from "./models";
 
@@ -557,6 +562,15 @@ export const normalizeDecision = (raw: string): DecisionResult => {
   return { ...result, warnings, diagnostics } satisfies DecisionResult;
 };
 
+export type NextActionDecision = {
+  action: "respond" | "search";
+  query: string | null;
+  plan: string;
+  rationale: string;
+  debugContext: ContextBuildResult["slices"]["debug"];
+  context: ContextBuildResult;
+};
+
 export type DecisionHints = {
   freshDataHint?: string | null;
 };
@@ -605,6 +619,60 @@ export const buildAnswerHistory = (
   })),
   { role: "user", content: userContent },
 ];
+
+export async function decideNextAction(
+  engine: MLCEngine,
+  userMessage: Message,
+  history: Message[],
+  config: Config,
+  memory: SemanticMemoryClient | null,
+  externalEvidence?: string | null,
+): Promise<NextActionDecision> {
+  const context = await buildContext(engine, {
+    userMessage,
+    history,
+    config,
+    memory,
+    externalEvidence: externalEvidence ?? null,
+  });
+
+  const decisionCompletion = await engine.chat.completions.create({
+    messages: context.messagesForPlanning,
+    temperature: 0.1,
+    max_tokens: 512,
+    stream: false,
+  });
+
+  const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(typeof raw === "string" ? raw : JSON.stringify(raw));
+  } catch {
+    parsed = null;
+  }
+
+  const action = parsed?.action === "search" ? "search" : "respond";
+  const query = typeof parsed?.query === "string" ? parsed.query.trim() : null;
+  const plan = typeof parsed?.plan === "string" && parsed.plan.trim()
+    ? parsed.plan.trim()
+    : "1) Analyser la question\n2) Identifier les informations utiles\n3) Répondre clairement";
+  const rationale =
+    typeof parsed?.rationale === "string" && parsed.rationale.trim()
+      ? parsed.rationale.trim()
+      : action === "search"
+      ? "Recherche nécessaire pour données fraîches ou vérification."
+      : "Réponse directe suffisante avec le contexte actuel.";
+
+  return {
+    action,
+    query: action === "search" ? query : null,
+    plan,
+    rationale,
+    debugContext: context.slices.debug,
+    context,
+  } satisfies NextActionDecision;
+}
 
 export async function decideAction(
   engine: MLCEngine,

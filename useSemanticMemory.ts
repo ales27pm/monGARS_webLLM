@@ -46,11 +46,17 @@ export function useSemanticMemory(
   const queryMemory = useCallback(
     async (
       query: string,
+      neighborsOverride?: number,
     ): Promise<{ context: string; results: ScoredMemoryEntry[] }> => {
       if (!enabled) return { context: "", results: [] };
 
+      const limit =
+        typeof neighborsOverride === "number" && Number.isFinite(neighborsOverride)
+          ? Math.max(1, neighborsOverride)
+          : neighbors;
+
       try {
-        const results = await memory.search(query, neighbors);
+        const results = await memory.search(query, limit);
         return { context: memory.formatSummaries(results), results };
       } catch (error) {
         console.warn("Semantic memory search failed", error);
