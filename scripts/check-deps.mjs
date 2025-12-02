@@ -30,5 +30,5 @@ if (missing.length > 0) {
   console.error(
     'Run "npm install" to install project dependencies before starting the dev server.'
   );
-  process.exitCode = 1;
+  process.exit(1);
 }
