@@ -37,6 +37,7 @@ import type {
 } from "./types";
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
+import { getModelShortLabel } from "./models";
 import type { ScoredMemoryEntry } from "./memory";
 
 declare global {
@@ -429,7 +430,7 @@ Règles :
 
         addToast(
           "Moteur chargé",
-          `Modèle ${selectedModel.replace(/-q4f\d+_1-MLC$/, "")} prêt.`,
+          `Modèle ${getModelShortLabel(selectedModel)} prêt.`,
           "success",
         );
 

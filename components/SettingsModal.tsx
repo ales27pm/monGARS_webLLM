@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { Config } from "../types";
+import { getModelLabel, getModelMetadata } from "../models";
 
 interface SettingsModalProps {
   isVisible: boolean;
@@ -21,6 +22,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [currentConfig, isVisible]);
 
   if (!isVisible) return null;
+
+  const modelMetadata = getModelMetadata(config.modelId);
+  const modelLabel = getModelLabel(config.modelId);
+  const modelDescription =
+    modelMetadata?.description ||
+    "Le modèle est optimisé pour rester local tout en offrant une meilleure stabilité.";
 
   const handleSave = () => {
     onSave(config);
@@ -72,12 +79,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="setting-group">
             <label className="setting-label">Modèle IA</label>
             <div className="setting-input bg-slate-100 dark:bg-slate-700/50">
-              Qwen2.5 0.5B q4f32_1 (Qualité &amp; réactivité)
+              {modelLabel}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              <i className="fa-solid fa-info-circle mr-1"></i>Le modèle est
-              optimisé pour rester local tout en offrant une meilleure stabilité
-              (quantification q4f32_1).
+              <i className="fa-solid fa-info-circle mr-1"></i>
+              {modelDescription}
             </p>
           </div>
 

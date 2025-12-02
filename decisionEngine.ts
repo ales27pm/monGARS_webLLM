@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
 import type { Config, Message, MLCEngine } from "./types";
+import { DEFAULT_MODEL_ID } from "./models";
 
-export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f32_1-MLC";
+export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
 export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
