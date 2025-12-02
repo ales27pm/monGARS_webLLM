@@ -34,6 +34,7 @@ export interface ContextBudget {
 export interface ContextSlices {
   systemPrompt: string;
   conversationMessages: Message[];
+  conversationSummary: string | null;
   memorySummary: string | null;
   memoryResults?: SemanticMemoryClient["search"] extends (
     query: string,
@@ -63,6 +64,8 @@ export interface ContextBuildResult {
   slices: ContextSlices;
   messagesForPlanning: { role: string; content: string }[];
   messagesForAnswer: { role: string; content: string }[];
+  budget: ContextBudget;
+  userText: string;
 }
 
 function estimateTokens(text: string): number {
@@ -124,39 +127,70 @@ function selectHistoryUnderBudget(
 ): { selected: Message[]; truncated: boolean } {
   const scored = history.map((msg, i) => {
     const idxFromEnd = history.length - 1 - i;
-    return { msg, score: scoreHistoryMessage(msg, idxFromEnd, query) };
+    return { msg, score: scoreHistoryMessage(msg, idxFromEnd, query), idx: i };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
-  const selected: Message[] = [];
+  const selected: { msg: Message; idx: number }[] = [];
   let usedTokens = 0;
   let truncated = false;
 
-  for (const { msg } of scored) {
-    const tokens = estimateTokens(msg.content || "");
+  for (const entry of scored) {
+    const tokens = estimateTokens(entry.msg.content || "");
     if (usedTokens + tokens > tokenBudget) {
       truncated = true;
       break;
     }
-    selected.push(msg);
+    selected.push(entry);
     usedTokens += tokens;
   }
 
-  selected.sort((a, b) => a.timestamp - b.timestamp);
-  return { selected, truncated };
+  const safeTimestamp = (value: Message["timestamp"]): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  selected.sort((a, b) => {
+    const aTs = safeTimestamp(a.msg.timestamp);
+    const bTs = safeTimestamp(b.msg.timestamp);
+
+    if (aTs !== null && bTs !== null) return aTs - bTs;
+    if (aTs !== null) return -1;
+    if (bTs !== null) return 1;
+    return a.idx - b.idx;
+  });
+
+  return { selected: selected.map((s) => s.msg), truncated };
 }
 
 async function summarizeMessages(
   engine: MLCEngine,
   messages: Message[],
   language: "fr" | "en" | "auto" = "fr",
+  options?: { maxInputTokens?: number },
 ): Promise<string> {
   if (!messages.length) return "";
 
-  const joined = messages
-    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-    .join("\n");
+  const maxTokens = options?.maxInputTokens ?? 1200;
+  const lines: string[] = [];
+  let usedTokens = 0;
+
+  for (const m of messages) {
+    const line = `${m.role.toUpperCase()}: ${m.content}`;
+    const tokens = estimateTokens(line);
+    if (usedTokens + tokens > maxTokens) {
+      break;
+    }
+    lines.push(line);
+    usedTokens += tokens;
+  }
+
+  const joined = lines.join("\n");
 
   const localeHint =
     language === "auto"
@@ -198,32 +232,16 @@ Ta tâche:
   return typeof content === "string" ? content : JSON.stringify(content);
 }
 
-export async function buildContext(
-  engine: MLCEngine,
-  input: ContextBuildInput,
-): Promise<ContextBuildResult> {
-  const {
-    userMessage,
-    history,
-    memory,
-    config: _config,
-    externalEvidence = null,
-    budget,
-  } = input;
-
-  void _config;
-
-  const effectiveBudget: ContextBudget = {
+function computeEffectiveBudget(budget?: Partial<ContextBudget>): ContextBudget {
+  return {
     totalTokens: budget?.totalTokens ?? 4096,
     systemTokens: budget?.systemTokens ?? 800,
     planningTokens: budget?.planningTokens ?? 1200,
     answerTokens: budget?.answerTokens ?? 2800,
   };
+}
 
-  const userText = userMessage.content || "";
-  const taskCategory = classifyTaskHeuristic(userText);
-
-  const systemPrompt = `
+const buildSystemPrompt = () => `
 Tu es "monGARS", un assistant IA local exécuté entièrement dans le navigateur via WebGPU.
 Tu es:
 - Rigoureux sur les faits.
@@ -245,13 +263,31 @@ Contexte fourni dans cette requête:
 - [EXTERNE]      : informations provenant de recherches ou d'outils externes, si présentes.
 
 Ta mission:
-Répondre de la manière la plus utile possible à la question de l'utilisateur en tirant un maximum parti de ces blocs de contexte.
+Répondre de la manière la plus utile possible à la question de l'utilisateur en tirant un maximum parti de ces blocs de contexte
 `;
 
-  const historyBudgetTokens = Math.max(
-    200,
-    Math.min(effectiveBudget.answerTokens - 800, 2000),
-  );
+const computeHistoryBudget = (budget: ContextBudget) =>
+  Math.max(200, Math.min(budget.answerTokens - 800, 2000));
+
+const clampTextToBudget = (text: string, tokenBudget: number) => {
+  let trimmed = text;
+  while (estimateTokens(trimmed) > tokenBudget && trimmed.length > 0) {
+    trimmed = trimmed.slice(0, Math.max(0, Math.floor(trimmed.length * 0.9)));
+  }
+  return trimmed || text.slice(0, Math.min(text.length, tokenBudget * 4));
+};
+
+async function buildConversationSlice(
+  engine: MLCEngine,
+  history: Message[],
+  userText: string,
+  budget: ContextBudget,
+): Promise<{
+  conversationMessages: Message[];
+  conversationSummary: string | null;
+  truncated: boolean;
+}> {
+  const historyBudgetTokens = computeHistoryBudget(budget);
 
   const { selected: selectedHistory, truncated } = selectHistoryUnderBudget(
     history,
@@ -259,73 +295,127 @@ Répondre de la manière la plus utile possible à la question de l'utilisateur 
     historyBudgetTokens,
   );
 
-  let conversationMessages: Message[] = selectedHistory;
-  let conversationSummary: string | null = null;
-
-  if (truncated && selectedHistory.length > 6) {
-    const older = selectedHistory.slice(0, selectedHistory.length - 4);
-    const recent = selectedHistory.slice(-4);
-    const summary = await summarizeMessages(engine, older, "fr");
-    conversationSummary = summary;
-    conversationMessages = recent;
+  if (!(truncated && selectedHistory.length > 6)) {
+    return {
+      conversationMessages: selectedHistory,
+      conversationSummary: null,
+      truncated,
+    };
   }
 
+  const older = selectedHistory.slice(0, selectedHistory.length - 4);
+  const recent = selectedHistory.slice(-4);
+  const summary = await summarizeMessages(engine, older, "fr", {
+    maxInputTokens: Math.max(256, Math.min(1200, budget.answerTokens - 600)),
+  });
+
+  return {
+    conversationMessages: recent,
+    conversationSummary: summary,
+    truncated,
+  };
+}
+
+async function buildMemorySlice(
+  engine: MLCEngine,
+  memory: SemanticMemoryClient | null,
+  userText: string,
+  budget: ContextBudget,
+): Promise<{
+  memorySummary: string | null;
+  memoryHitCount: number;
+  memoryResults: ContextSlices["memoryResults"];
+}> {
   let memorySummary: string | null = null;
   let memoryHitCount = 0;
   let memoryResults: ContextSlices["memoryResults"];
 
-  if (memory && memory.enabled) {
-    try {
-      const searchResult = await memory.search(
-        userText,
-        Math.max(2, Math.min(8, effectiveBudget.answerTokens / 512)),
-      );
-      memoryResults = searchResult.results;
-      memoryHitCount = searchResult.results.length;
+  if (!memory || !memory.enabled) {
+    return { memorySummary, memoryHitCount, memoryResults };
+  }
 
-      if (searchResult.results.length > 0) {
-        const formatted = searchResult.results
-          .map((r, idx) => `(${idx + 1}) ${r.content}`)
-          .join("\n\n");
+  try {
+    const neighborCount = Math.max(
+      2,
+      Math.min(8, Math.floor(budget.answerTokens / 512)),
+    );
 
-        const toSummarize = `
+    const searchResult = await memory.search(userText, neighborCount);
+    memoryResults = searchResult.results;
+    memoryHitCount = searchResult.results.length;
+
+    if (searchResult.results.length > 0) {
+      const formatted = searchResult.results
+        .map((r, idx) => `(${idx + 1}) ${r.content}`)
+        .join("\n\n");
+
+      const toSummarize = `
 Elements mémoire pertinents (classés par similarité):
 
 ${formatted}
 `;
 
-        memorySummary = await summarizeMessages(engine, [
+      memorySummary = await summarizeMessages(
+        engine,
+        [
           {
             id: "memory",
             role: "user",
             content: toSummarize,
             timestamp: Date.now(),
           },
-        ]);
-      }
-    } catch (err) {
-      console.warn("[contextEngine] memory search failed:", err);
+        ],
+        "fr",
+        { maxInputTokens: Math.max(256, Math.min(1200, budget.answerTokens - 600)) },
+      );
     }
+  } catch (err) {
+    console.warn("[contextEngine] memory search failed:", err);
   }
 
-  const externalContext = externalEvidence
+  return { memorySummary, memoryHitCount, memoryResults };
+}
+
+const buildExternalContext = (externalEvidence: string | null) =>
+  externalEvidence
     ? `Résultats d'outils externes (par ex. recherche web):\n\n${externalEvidence}`
     : null;
 
-  const slices: ContextSlices = {
-    systemPrompt,
-    conversationMessages,
-    memorySummary,
-    memoryResults,
-    externalContext,
-    debug: {
-      taskCategory,
-      chosenHistoryCount: conversationMessages.length,
-      memoryHitCount,
-      truncated,
-    },
-  };
+const buildContextBlocks = (
+  conversationSummary: string | null,
+  conversationMessages: Message[],
+  memorySummary: string | null,
+  externalContext: string | null,
+) => {
+  const convoBlock = conversationSummary
+    ? `[Résumé conversation]\n${conversationSummary}\n\n`
+    : "";
 
+  const convoTurns = conversationMessages
+    .map((m) =>
+      `${m.role === "user" ? "Utilisateur" : m.role === "assistant" ? "Assistant" : "Outil"}: ${m.content}`,
+    )
+    .join("\n");
+
+  const memoryBlock = memorySummary
+    ? `\n[MEMOIRE]\n${memorySummary}\n`
+    : "\n[MEMOIRE]\n(pas d'éléments mémoire particulièrement pertinents ou mémoire désactivée)\n";
+
+  const externalBlock = externalContext
+    ? `\n[EXTERNE]\n${externalContext}\n`
+    : "\n[EXTERNE]\n(aucune information externe fournie pour cette requête)\n";
+
+  return { convoBlock, convoTurns, memoryBlock, externalBlock };
+};
+
+const buildPlanningMessages = (
+  systemPrompt: string,
+  userText: string,
+  conversationSummary: string | null,
+  memorySummary: string | null,
+  externalContext: string | null,
+  planningTokenBudget: number,
+) => {
   const planningContextTextParts: string[] = [];
 
   if (conversationSummary) {
@@ -342,9 +432,12 @@ ${formatted}
     planningContextTextParts.push("[Infos externes]\n" + externalContext);
   }
 
-  const planningContextText = planningContextTextParts.join("\n\n");
+  const planningContextText = clampTextToBudget(
+    planningContextTextParts.join("\n\n"),
+    planningTokenBudget,
+  );
 
-  const messagesForPlanning = [
+  return [
     { role: "system", content: systemPrompt },
     {
       role: "user",
@@ -370,26 +463,25 @@ Tâche:
 `,
     },
   ];
+};
 
-  const convoBlock = conversationSummary
-    ? `[Résumé conversation]\n${conversationSummary}\n\n`
-    : "";
+const buildAnswerMessages = (
+  systemPrompt: string,
+  userText: string,
+  conversationSummary: string | null,
+  conversationMessages: Message[],
+  memorySummary: string | null,
+  externalContext: string | null,
+) => {
+  const { convoBlock, convoTurns, memoryBlock, externalBlock } =
+    buildContextBlocks(
+      conversationSummary,
+      conversationMessages,
+      memorySummary,
+      externalContext,
+    );
 
-  const convoTurns = conversationMessages
-    .map((m) =>
-      `${m.role === "user" ? "Utilisateur" : m.role === "assistant" ? "Assistant" : "Outil"}: ${m.content}`,
-    )
-    .join("\n");
-
-  const memoryBlock = memorySummary
-    ? `\n[MEMOIRE]\n${memorySummary}\n`
-    : "\n[MEMOIRE]\n(pas d'éléments mémoire particulièrement pertinents ou mémoire désactivée)\n";
-
-  const externalBlock = externalContext
-    ? `\n[EXTERNE]\n${externalContext}\n`
-    : "\n[EXTERNE]\n(aucune information externe fournie pour cette requête)\n";
-
-  const messagesForAnswer = [
+  return [
     { role: "system", content: systemPrompt },
     {
       role: "user",
@@ -411,10 +503,113 @@ Consignes:
 `,
     },
   ];
+};
+
+function rebuildMessagesFromSlices(
+  slices: ContextSlices,
+  userText: string,
+  budget: ContextBudget,
+) {
+  const planningMessages = buildPlanningMessages(
+    slices.systemPrompt,
+    userText,
+    slices.conversationSummary,
+    slices.memorySummary,
+    slices.externalContext,
+    budget.planningTokens,
+  );
+
+  const answerMessages = buildAnswerMessages(
+    slices.systemPrompt,
+    userText,
+    slices.conversationSummary,
+    slices.conversationMessages,
+    slices.memorySummary,
+    slices.externalContext,
+  );
+
+  return { planningMessages, answerMessages };
+}
+
+export async function buildContext(
+  engine: MLCEngine,
+  input: ContextBuildInput,
+): Promise<ContextBuildResult> {
+  const {
+    userMessage,
+    history,
+    memory,
+    config: _config,
+    externalEvidence = null,
+    budget,
+  } = input;
+
+  void _config;
+
+  const effectiveBudget = computeEffectiveBudget(budget);
+  const userText = userMessage.content || "";
+  const taskCategory = classifyTaskHeuristic(userText);
+  const systemPrompt = buildSystemPrompt();
+
+  const { conversationMessages, conversationSummary, truncated } =
+    await buildConversationSlice(engine, history, userText, effectiveBudget);
+
+  const { memorySummary, memoryHitCount, memoryResults } =
+    await buildMemorySlice(engine, memory, userText, effectiveBudget);
+
+  const externalContext = buildExternalContext(externalEvidence);
+
+  const slices: ContextSlices = {
+    systemPrompt,
+    conversationMessages,
+    conversationSummary,
+    memorySummary,
+    memoryResults,
+    externalContext,
+    debug: {
+      taskCategory,
+      chosenHistoryCount: conversationMessages.length,
+      memoryHitCount,
+      truncated,
+    },
+  };
+
+  const { planningMessages, answerMessages } = rebuildMessagesFromSlices(
+    slices,
+    userText,
+    effectiveBudget,
+  );
 
   return {
     slices,
-    messagesForPlanning,
-    messagesForAnswer,
+    messagesForPlanning: planningMessages,
+    messagesForAnswer: answerMessages,
+    budget: effectiveBudget,
+    userText,
+  };
+}
+
+export function rebuildContextWithExternalEvidence(
+  previous: ContextBuildResult,
+  externalEvidence: string | null,
+): ContextBuildResult {
+  const externalContext = buildExternalContext(externalEvidence);
+  const updatedSlices: ContextSlices = {
+    ...previous.slices,
+    externalContext,
+  };
+
+  const { planningMessages, answerMessages } = rebuildMessagesFromSlices(
+    updatedSlices,
+    previous.userText,
+    previous.budget,
+  );
+
+  return {
+    slices: updatedSlices,
+    messagesForPlanning: planningMessages,
+    messagesForAnswer: answerMessages,
+    budget: previous.budget,
+    userText: previous.userText,
   };
 }

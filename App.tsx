@@ -36,10 +36,10 @@ import type {
   MLCEngine,
 } from "./types";
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
-import { decideNextAction, MODEL_ID } from "./decisionEngine";
+import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine";
 import { getModelShortLabel } from "./models";
 import type { ScoredMemoryEntry } from "./memory";
-import { buildContext } from "./contextEngine";
+import { rebuildContextWithExternalEvidence } from "./contextEngine";
 
 declare global {
   interface Navigator {
@@ -751,13 +751,7 @@ Règles :
       }
 
       const contextForAnswer = shouldSearch
-        ? await buildContext(currentEngine, {
-            userMessage,
-            history: conversationForDecision,
-            config,
-            memory: semanticMemoryClient,
-            externalEvidence,
-          })
+        ? rebuildContextWithExternalEvidence(decision.context, externalEvidence)
         : decision.context;
 
       setReasoningTrace({
@@ -800,8 +794,15 @@ Règles :
           "warning",
         );
 
+        const fallbackMessages = buildAnswerHistory(
+          decision.plan,
+          config,
+          conversationForDecision,
+          userMessage.content || "",
+        );
+
         finalAiResponse = await streamAnswer(
-          finalMessages,
+          fallbackMessages,
           aiMessagePlaceholder.id,
         );
 
