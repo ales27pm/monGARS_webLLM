@@ -24,11 +24,12 @@ export const PRIVACY_CAPABILITY = {
 
 export function CapabilityPills({
   config,
-  hasWebGPU,
+  webGPUAvailable,
 }: {
   config: Config;
-  hasWebGPU: boolean;
+  webGPUAvailable?: boolean;
 }) {
+  const gpuReady = webGPUAvailable === undefined ? null : webGPUAvailable;
   const pills = [
     {
       ...PRIVACY_CAPABILITY,
@@ -49,8 +50,18 @@ export function CapabilityPills({
     {
       icon: "fa-microchip",
       label: "Accélération",
-      value: hasWebGPU ? "WebGPU prête" : "CPU (fallback)",
-      tone: hasWebGPU ? capabilityTone.amber : capabilityTone.rose,
+      value:
+        gpuReady === null
+          ? "Détection en cours"
+          : gpuReady
+            ? "WebGPU prête"
+            : "CPU (fallback)",
+      tone:
+        gpuReady === null
+          ? capabilityTone.slate
+          : gpuReady
+            ? capabilityTone.amber
+            : capabilityTone.rose,
     },
   ];
 

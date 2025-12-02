@@ -33,8 +33,13 @@ const DEFAULT_PLAN_STEPS = [
   "Valider les faits et structurer la réponse finale en français clair.",
 ];
 
+/**
+ * Removes a single leading list marker (optional blockquote `>` followed by
+ * an ordered marker like `1.` or `2)` or an unordered marker `-`, `*`, `+`,
+ * or `•`), along with the following whitespace.
+ */
 export const stripListPrefix = (entry: string) =>
-  entry.replace(/^[\s>*•-]*\d*[.)]?\s*/, "").trim();
+  entry.replace(/^\s*>?\s*(?:\d+[.)]|[-*+\u2022])\s+/, "").trim();
 
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();

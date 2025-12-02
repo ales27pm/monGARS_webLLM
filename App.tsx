@@ -159,6 +159,9 @@ const App: React.FC = () => {
   const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
     null,
   );
+  const [webGPUAvailable, setWebGPUAvailable] = useState<
+    boolean | undefined
+  >(undefined);
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -330,6 +333,7 @@ Règles :
       );
       setEngineStatus("error");
       setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+      setWebGPUAvailable(false);
       return false;
     }
     try {
@@ -343,6 +347,7 @@ Règles :
         );
         setEngineStatus("error");
         setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+        setWebGPUAvailable(false);
         return false;
       }
     } catch (err) {
@@ -355,10 +360,26 @@ Règles :
       );
       setEngineStatus("error");
       setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+      setWebGPUAvailable(false);
       return false;
     }
+    setWebGPUAvailable(true);
     return true;
-  }, [addToast]);
+  }, [addToast, setWebGPUAvailable]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const probeWebGPU = async () => {
+      const available = await checkWebGPU();
+      if (!cancelled) {
+        setWebGPUAvailable(available);
+      }
+    };
+    probeWebGPU();
+    return () => {
+      cancelled = true;
+    };
+  }, [checkWebGPU]);
 
   const loadEngine = useCallback(
     async (forceReload = false): Promise<MLCEngine | null> => {
@@ -997,8 +1018,6 @@ Règles :
     });
   };
 
-  const hasWebGPU = typeof navigator !== "undefined" && Boolean(navigator.gpu);
-
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 -z-10">
@@ -1019,7 +1038,10 @@ Règles :
           config={config}
         />
 
-        <CapabilityPills config={config} hasWebGPU={hasWebGPU} />
+        <CapabilityPills
+          config={config}
+          webGPUAvailable={webGPUAvailable}
+        />
 
         <div className="w-full max-w-4xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-700/60 rounded-3xl shadow-lg shadow-slate-900/5 dark:shadow-black/30 backdrop-blur-sm flex flex-col overflow-hidden">
           <StatusBar
