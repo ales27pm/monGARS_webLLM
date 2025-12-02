@@ -25,6 +25,8 @@ import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
+import { CapabilityPills } from "./components/CapabilityPills";
+import { HeroHeader } from "./components/HeroHeader";
 import type {
   Message,
   Config,
@@ -157,6 +159,9 @@ const App: React.FC = () => {
   const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
     null,
   );
+  const [webGPUAvailable, setWebGPUAvailable] = useState<
+    boolean | undefined
+  >(undefined);
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -328,6 +333,7 @@ Règles :
       );
       setEngineStatus("error");
       setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+      setWebGPUAvailable(false);
       return false;
     }
     try {
@@ -341,6 +347,7 @@ Règles :
         );
         setEngineStatus("error");
         setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+        setWebGPUAvailable(false);
         return false;
       }
     } catch (err) {
@@ -353,10 +360,26 @@ Règles :
       );
       setEngineStatus("error");
       setInitProgress({ progress: 0, text: "WebGPU non disponible" });
+      setWebGPUAvailable(false);
       return false;
     }
+    setWebGPUAvailable(true);
     return true;
-  }, [addToast]);
+  }, [addToast, setWebGPUAvailable]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const probeWebGPU = async () => {
+      const available = await checkWebGPU();
+      if (!cancelled) {
+        setWebGPUAvailable(available);
+      }
+    };
+    probeWebGPU();
+    return () => {
+      cancelled = true;
+    };
+  }, [checkWebGPU]);
 
   const loadEngine = useCallback(
     async (forceReload = false): Promise<MLCEngine | null> => {
@@ -996,14 +1019,31 @@ Règles :
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute -left-24 -top-32 w-80 h-80 rounded-full bg-primary-DEFAULT/15 blur-[100px]" />
+        <div className="absolute right-[-80px] top-10 w-72 h-72 rounded-full bg-indigo-500/20 blur-[110px]" />
+        <div className="absolute left-1/2 bottom-[-120px] -translate-x-1/2 w-[520px] h-[520px] rounded-full bg-gradient-to-r from-primary-DEFAULT/10 via-purple-500/5 to-transparent blur-[130px]" />
+      </div>
+
       <Header
         onSettings={() => setIsSettingsVisible(true)}
         theme={config.theme}
         onToggleTheme={toggleTheme}
       />
       <main className="flex-1 flex flex-col items-center px-4 py-6">
-        <div className="w-full max-w-3xl bg-white/70 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-700/60 rounded-3xl shadow-lg shadow-slate-900/5 dark:shadow-black/30 backdrop-blur-sm flex flex-col overflow-hidden">
+        <HeroHeader
+          engineStatus={engineStatus}
+          initProgress={initProgress}
+          config={config}
+        />
+
+        <CapabilityPills
+          config={config}
+          webGPUAvailable={webGPUAvailable}
+        />
+
+        <div className="w-full max-w-4xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-700/60 rounded-3xl shadow-lg shadow-slate-900/5 dark:shadow-black/30 backdrop-blur-sm flex flex-col overflow-hidden">
           <StatusBar
             status={engineStatus}
             progress={initProgress}
@@ -1031,7 +1071,7 @@ Règles :
               />
             )}
           </div>
-          <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80">
+          <div className="border-t border-slate-100 dark:border-slate-800 bg-gradient-to-r from-slate-50/90 via-white/70 to-slate-100/90 dark:from-slate-900/90 dark:via-slate-900/70 dark:to-slate-900/90">
             <InputBar
               onSend={handleSend}
               onStop={handleStop}

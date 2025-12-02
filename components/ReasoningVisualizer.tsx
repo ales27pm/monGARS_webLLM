@@ -1,4 +1,5 @@
 import React from "react";
+import { stripListPrefix } from "../decisionEngine";
 import type { ScoredMemoryEntry } from "../memory";
 
 const formatEmbeddingPreview = (vector: Float32Array) => {
@@ -36,7 +37,7 @@ export const ReasoningVisualizer: React.FC<ReasoningVisualizerProps> = ({
 
   const planSteps = trace.plan
     .split(/\n+/)
-    .map((step) => step.trim())
+    .map((step) => stripListPrefix(step))
     .filter(Boolean);
 
   return (
