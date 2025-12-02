@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { buildContextualHints } from "./contextProfiling";
 import type { Config, Message, MLCEngine } from "./types";
 
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
@@ -14,6 +15,7 @@ appeler l'outil de recherche.
 
 Contraintes incontournables :
 - Inspecte minutieusement la requête et le contexte (messages récents uniquement).
+- Utilise les indices contextuels fournis pour éviter les hors-sujets et les refus injustifiés.
 - Construis un plan Tree-of-Thought en au moins 3 étapes numérotées (diagnostic, pistes, validation).
 - Choisis strictement entre "search" (si une actualité, une donnée récente ou un doute factuel existe) ou "respond".
 - Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
@@ -37,7 +39,9 @@ const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
+      "\n",
+    );
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
@@ -114,47 +118,111 @@ export const stripJson = (raw: string) => {
   }
 };
 
-export const normalizeDecision = (raw: string) => {
+export type DecisionResult = {
+  action: "search" | "respond";
+  query?: string;
+  plan: string;
+  rationale: string;
+  response?: string;
+  warnings: string[];
+};
+
+const formatZodIssues = (issues: z.ZodIssue[]) =>
+  issues
+    .map((issue) =>
+      [issue.path?.join("."), issue.message].filter(Boolean).join(" → "),
+    )
+    .filter(Boolean)
+    .join(" | ");
+
+const countPlanSteps = (plan: string) =>
+  plan
+    .split(/\n+/)
+    .map((step) => step.trim())
+    .filter(Boolean).length;
+
+type NormalizationMeta = {
+  raw: string;
+  source: "validated" | "fallback";
+  parsingIssues?: z.ZodIssue[];
+  providedPlan?: string;
+  providedStepCount?: number;
+  planReformatted?: boolean;
+  hadPlan: boolean;
+  hadRationale: boolean;
+  actionBeforeSwitch?: "search" | "respond";
+  actionAfterSwitch: "search" | "respond";
+  finalAction: "search" | "respond";
+  actionFlip?: "searchToRespond" | "respondToSearch";
+  hasQuery: boolean;
+  hasResponse: boolean;
+  fallbackQueryMissing?: boolean;
+  fallbackResponseMissing?: boolean;
+};
+
+const normalizeDecisionCore = (
+  raw: string,
+): { result: Omit<DecisionResult, "warnings">; meta: NormalizationMeta } => {
   const parsed = stripJson(raw) || {};
   const decision = decisionSchema.safeParse(parsed);
 
   if (decision.success) {
     const normalizedQuery = decision.data.query?.trim();
     const normalizedResponse = decision.data.response?.trim();
-    const normalized = {
-      action: decision.data.action,
-      plan: normalizePlan(decision.data.plan),
-      rationale: decision.data.rationale?.trim(),
-      query: normalizedQuery,
-      response: normalizedResponse,
-    };
-    const hasQuery = !!normalizedQuery;
-    const hasResponse = !!normalizedResponse;
+    const normalizedPlan = normalizePlan(decision.data.plan);
+    const providedPlan = decision.data.plan?.trim() || "";
+    const providedRationale = decision.data.rationale?.trim();
 
-    let { action } = decision.data;
+    let action = decision.data.action;
+    let actionFlip: NormalizationMeta["actionFlip"];
 
     // If the model intends to search but provides no query, switch to respond.
     // If it intends to respond but provides no response, switch to search.
-    if (action === "search" && !hasQuery) {
+    if (action === "search" && !normalizedQuery) {
       action = "respond";
-    } else if (action === "respond" && !hasResponse) {
+      actionFlip = "searchToRespond";
+    } else if (action === "respond" && !normalizedResponse) {
       action = "search";
+      actionFlip = "respondToSearch";
     }
 
-    const wantsSearch = action === "search" && hasQuery;
-    const finalAction: "search" | "respond" = wantsSearch ? "search" : "respond";
+    const wantsSearch = action === "search" && !!normalizedQuery;
+    const finalAction: "search" | "respond" = wantsSearch
+      ? "search"
+      : "respond";
 
-    return {
+    const result: Omit<DecisionResult, "warnings"> = {
       action: finalAction,
-      query: finalAction === "search" ? normalized.query : undefined,
-      plan: normalized.plan,
+      query: finalAction === "search" ? normalizedQuery : undefined,
+      plan: normalizedPlan,
       rationale:
-        normalized.rationale ||
+        providedRationale ||
         (finalAction === "search"
           ? "Recherche requise pour données fraîches."
           : "Réponse directe appropriée."),
-      response: finalAction === "respond" ? normalized.response : undefined,
-    } satisfies z.infer<typeof decisionSchema>;
+      response: finalAction === "respond" ? normalizedResponse : undefined,
+    } satisfies Omit<DecisionResult, "warnings">;
+
+    const meta: NormalizationMeta = {
+      raw,
+      source: "validated",
+      parsingIssues: [],
+      providedPlan,
+      providedStepCount: providedPlan
+        ? countPlanSteps(providedPlan)
+        : undefined,
+      planReformatted: !!providedPlan && providedPlan !== normalizedPlan,
+      hadPlan: !!providedPlan,
+      hadRationale: !!providedRationale,
+      actionBeforeSwitch: decision.data.action,
+      actionAfterSwitch: action,
+      finalAction,
+      actionFlip,
+      hasQuery: !!normalizedQuery,
+      hasResponse: !!normalizedResponse,
+    };
+
+    return { result, meta };
   }
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
@@ -163,32 +231,125 @@ export const normalizeDecision = (raw: string) => {
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
   );
 
-  return {
+  const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
     plan: normalizePlan(),
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
-  } satisfies z.infer<typeof decisionSchema>;
+  } satisfies Omit<DecisionResult, "warnings">;
+
+  const meta: NormalizationMeta = {
+    raw,
+    source: "fallback",
+    parsingIssues: decision.error.issues,
+    hadPlan: false,
+    hadRationale: false,
+    actionAfterSwitch: fallbackAction as "search" | "respond",
+    finalAction: fallbackAction as "search" | "respond",
+    hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
+    hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
+    fallbackQueryMissing:
+      fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
+    fallbackResponseMissing:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+  };
+
+  return { result, meta };
 };
 
-export type DecisionResult = z.infer<typeof decisionSchema>;
+const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
+  if (meta.source === "fallback") {
+    const warnings = [
+      "Échec de parsing JSON, utilisation d'un fallback tolérant.",
+    ];
+
+    if (meta.parsingIssues && meta.parsingIssues.length > 0) {
+      warnings.push(
+        `Détails de validation : ${formatZodIssues(meta.parsingIssues)}`,
+      );
+    }
+    if (meta.fallbackQueryMissing) {
+      warnings.push(
+        "Aucune requête trouvée dans le fallback, action search potentiellement invalide.",
+      );
+    }
+    if (meta.fallbackResponseMissing) {
+      warnings.push(
+        "Aucune réponse trouvée dans le fallback, action respond potentiellement invalide.",
+      );
+    }
+
+    return warnings;
+  }
+
+  const warnings: string[] = [];
+
+  if (!meta.hadPlan) {
+    warnings.push(
+      "Plan complété par défaut (absent dans la réponse du modèle).",
+    );
+  } else {
+    if ((meta.providedStepCount ?? 0) < 3) {
+      warnings.push(
+        `Plan Tree-of-Thought insuffisant (${meta.providedStepCount}/3 étapes), complété automatiquement.`,
+      );
+    }
+    if (meta.planReformatted) {
+      warnings.push(
+        "Plan reformatté pour respecter les garde-fous ToT (3-6 étapes).",
+      );
+    }
+  }
+
+  if (!meta.hadRationale) {
+    warnings.push("Justification absente, complétée par défaut.");
+  }
+
+  if (meta.actionFlip === "searchToRespond") {
+    warnings.push("Action inversée en respond faute de requête de recherche.");
+  } else if (meta.actionFlip === "respondToSearch") {
+    warnings.push("Action inversée en search faute de réponse finale.");
+  }
+
+  if (meta.finalAction === "respond" && meta.hasQuery) {
+    warnings.push("Requête de recherche fournie mais action respond retenue.");
+  }
+  if (meta.finalAction === "search" && meta.hasResponse) {
+    warnings.push(
+      "Réponse finale fournie mais ignorée car l'action est search.",
+    );
+  }
+
+  return warnings;
+};
+
+export const normalizeDecision = (raw: string): DecisionResult => {
+  const { result, meta } = normalizeDecisionCore(raw);
+  const warnings = buildDecisionWarnings(meta);
+  return { ...result, warnings } satisfies DecisionResult;
+};
 
 export const buildDecisionMessages = (
   inputText: string,
   recentHistory: Message[],
   toolSpecPrompt: string,
-) => [
-  { role: "system", content: DECISION_SYSTEM_PROMPT },
-  {
-    role: "user",
-    content:
-      `Requête utilisateur:\n${inputText}\n\n` +
-      `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
-      `Outil disponible: ${toolSpecPrompt}\n` +
-      `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
-  },
-];
+) => {
+  const contextualHints = buildContextualHints(inputText, recentHistory);
+
+  return [
+    { role: "system", content: DECISION_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content:
+        `Requête utilisateur:\n${inputText}\n\n` +
+        `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
+        `Profil contextuel à exploiter sans l'ignorer:\n${contextualHints}\n\n` +
+        `Outil disponible: ${toolSpecPrompt}\n` +
+        `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
+    },
+  ];
+};
 
 export const buildAnswerHistory = (
   decisionPlan: string,

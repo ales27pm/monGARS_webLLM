@@ -641,6 +641,15 @@ Règles :
         abortControllerRef.current?.signal,
       );
 
+      if (decision.warnings.length > 0) {
+        console.warn("Avertissements décisionnels", decision.warnings);
+        addToast(
+          "Raisonnement à vérifier",
+          decision.warnings.slice(0, 3).join(" | "),
+          "warning",
+        );
+      }
+
       const decisionPlan =
         decision.plan?.trim() || "Réponse directe structurée";
       const fallbackSearchPlan =
