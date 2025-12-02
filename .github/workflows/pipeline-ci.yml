@@ -30,4 +30,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-prompt-report
-          path: artifacts/pipeline-report.*
+          path: |
+            artifacts/pipeline-report.*
+            artifacts/pipeline-next-prompts.md

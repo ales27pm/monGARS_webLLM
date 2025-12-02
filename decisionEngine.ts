@@ -193,10 +193,14 @@ const recoverLooseResponse = (raw: string): string | undefined => {
 const normalizeDecisionCore = (
   raw: string,
 ): { result: Omit<DecisionResult, "warnings">; meta: NormalizationMeta } => {
-  const parsed = stripJson(raw) || {};
+  const parsedJson = stripJson(raw);
+  const parsed = parsedJson || {};
+  const parsedFromJson = !!parsedJson;
   const decision = decisionSchema.safeParse(parsed);
+  const shouldFallback =
+    !parsedFromJson && (!decision.success || Object.keys(parsed).length === 0);
 
-  if (decision.success) {
+  if (decision.success && !shouldFallback) {
     const normalizedQuery = decision.data.query?.trim();
     const normalizedResponse =
       decision.data.response?.trim() || recoverLooseResponse(raw);
@@ -295,7 +299,7 @@ const normalizeDecisionCore = (
   const meta: NormalizationMeta = {
     raw,
     source: "fallback",
-    parsingIssues: decision.error.issues,
+    parsingIssues: decision.success ? [] : decision.error.issues,
     hadPlan: false,
     hadRationale: false,
     actionAfterSwitch: fallbackAction as "search" | "respond",

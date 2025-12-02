@@ -138,6 +138,102 @@ const promptCases: PromptCase[] = [
       warningSubstrings: ["Échec de parsing JSON"],
     },
   },
+  {
+    id: "respond-with-query",
+    description:
+      "Model répond directement mais fournit une requête de recherche : le pipeline doit rester en respond et signaler la requête superflue.",
+    userInput: "Peux-tu résumer l'évolution du marché des GPU depuis 2022?",
+    history: [
+      buildMessage(
+        "h5",
+        "assistant",
+        "Je peux t'aider sans rechercher si tu veux un résumé.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"respond","query":"prix gpu 2025","plan":"Répondre rapidement","rationale":"Résumé connu","response":"Résumé synthétique..."}',
+    expectations: {
+      expectedAction: "respond",
+      warningSubstrings: [
+        "Plan Tree-of-Thought insuffisant",
+        "Requête de recherche fournie mais action respond retenue",
+      ],
+    },
+  },
+  {
+    id: "search-with-response",
+    description:
+      "Model déclenche une recherche avec une réponse déjà fournie : le pipeline doit conserver search et avertir que la réponse est ignorée.",
+    userInput:
+      "Quels sont les derniers tarifs d'électricité résidentielle en France?",
+    history: [
+      buildMessage("h6", "user", "Je dois mettre à jour mon budget énergie."),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"search","query":"tarifs electricite France 2025","plan":"Analyser;Comparer;Mettre à jour","rationale":"Données volatiles","response":"Voici une estimation..."}',
+    expectations: {
+      expectedAction: "search",
+      warningSubstrings: [
+        "Plan reformatté",
+        "Réponse finale fournie mais ignorée car l'action est search",
+      ],
+    },
+  },
+  {
+    id: "fallback-respond-missing",
+    description:
+      "Sortie non structurée qui mentionne respond sans réponse : le fallback doit garder respond et signaler l'absence de réponse.",
+    userInput:
+      "Donne-moi un plan rapide pour organiser une conférence étudiante.",
+    history: [
+      buildMessage(
+        "h7",
+        "assistant",
+        "Précise si tu veux un plan détaillé ou une simple checklist.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision: "action: respond; plan: plan court",
+    expectations: {
+      expectedAction: "respond",
+      warningSubstrings: [
+        "Échec de parsing JSON",
+        "Aucune réponse trouvée dans le fallback",
+      ],
+      expectResponseMissing: true,
+    },
+  },
+];
+
+type NextPrompt = { title: string; prompt: string; objective: string };
+
+const nextRoundPrompts: NextPrompt[] = [
+  {
+    title: "Clarifier quand search est nécessaire",
+    prompt:
+      "L'impact économique du nouveau tarif carbone européen en 2026, avec sources récentes.",
+    objective:
+      "Vérifier que le pipeline force la recherche pour des données futures et exige une requête précise.",
+  },
+  {
+    title: "Récupération de réponse libre",
+    prompt:
+      "Liste trois étapes pour créer un club cybersécurité universitaire.",
+    objective:
+      "Valider la robustesse de la récupération de réponse quand le modèle répond hors JSON avec un plan incomplet.",
+  },
+  {
+    title: "Détection de contradictions plan/rationale",
+    prompt:
+      "Explique rapidement comment réinitialiser un routeur domestique et quand appeler le support.",
+    objective:
+      "Assurer que le plan Tree-of-Thought est présent et cohérent même si le modèle minimise la justification.",
+  },
 ];
 
 const evaluateExpectations = (
@@ -270,6 +366,23 @@ const toMarkdown = (reports: ReturnType<typeof buildCaseReport>[]) => {
   return lines.join("\n");
 };
 
+const nextPromptsToMarkdown = (prompts: NextPrompt[]) => {
+  const lines: string[] = [
+    "# Prompts pour le prochain cycle",
+    "Ces invites servent à élargir la couverture lors du prochain tour de tests.",
+    "",
+  ];
+
+  for (const prompt of prompts) {
+    lines.push(`## ${prompt.title}`);
+    lines.push(`Prompt: ${prompt.prompt}`);
+    lines.push(`Objectif: ${prompt.objective}`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+};
+
 async function main() {
   const reports = promptCases.map(buildCaseReport);
   const overallPass = reports.every((report) => report.passed);
@@ -293,6 +406,12 @@ async function main() {
   await fs.writeFile(
     path.join(artifactsDir, "pipeline-report.md"),
     toMarkdown(reports),
+    "utf8",
+  );
+
+  await fs.writeFile(
+    path.join(artifactsDir, "pipeline-next-prompts.md"),
+    nextPromptsToMarkdown(nextRoundPrompts),
     "utf8",
   );
 
