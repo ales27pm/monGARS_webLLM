@@ -39,9 +39,7 @@ const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
-      "\n",
-    );
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");

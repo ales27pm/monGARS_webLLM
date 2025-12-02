@@ -34,9 +34,15 @@ export const ReasoningVisualizer: React.FC<ReasoningVisualizerProps> = ({
 }) => {
   if (!trace) return null;
 
+  const stripListPrefix = (value: string) =>
+    value
+      // Remove ordered/unordered list markers (1), 1., -, •, etc.) and trim spaces
+      .replace(/^[\s>*-]*\d*[.)]?\s*/, "")
+      .trim();
+
   const planSteps = trace.plan
     .split(/\n+/)
-    .map((step) => step.trim())
+    .map((step) => stripListPrefix(step))
     .filter(Boolean);
 
   return (

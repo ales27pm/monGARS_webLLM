@@ -36,7 +36,7 @@
           if (descriptor) {
             Object.defineProperty(document, "currentScript", descriptor);
           } else {
-            delete (document as any).currentScript;
+            delete document.currentScript;
           }
         } catch (error) {
           console.warn("Unable to restore document.currentScript", error);
@@ -53,7 +53,7 @@
       } catch (error) {
         // If the descriptor is non-configurable, fall back to a best-effort assignment.
         try {
-          (document as any).currentScript = tailwindScript;
+          document.currentScript = tailwindScript;
         } catch (assignmentError) {
           console.warn("document.currentScript polyfill failed", assignmentError);
         }
