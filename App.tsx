@@ -669,7 +669,7 @@ Règles :
           : forcedQuery;
       let finalAiResponse = "";
 
-      let lastAnswerHistory: { role: string; content: string | null }[] | null =
+      let lastAnswerHistory: { role: string; content: string }[] | null =
         null;
 
       if (searchQueryToUse) {
