@@ -1,11 +1,4 @@
-import { pipeline, env } from "@xenova/transformers";
 import type { Message, Role } from "./types";
-
-type EmbeddingOutput = {
-  data: Float32Array | number[];
-};
-
-type EmbeddingPipeline = (input: string, options?: object) => Promise<EmbeddingOutput>;
 
 export type MemoryEntry = {
   id: string;
@@ -17,32 +10,64 @@ export type MemoryEntry = {
 
 export type ScoredMemoryEntry = MemoryEntry & { score: number };
 
+type WorkerRequest =
+  | { type: "warmup"; requestId: string }
+  | { type: "embed"; requestId: string; text: string }
+  | { type: "search"; requestId: string; query: string; entries: MemoryEntry[]; limit: number };
+
+type WorkerResponse =
+  | { type: "warmup_complete"; requestId: string }
+  | { type: "embed_result"; requestId: string; vector: Float32Array }
+  | { type: "search_result"; requestId: string; results: { index: number; score: number }[] };
+
 /**
  * Lightweight semantic memory powered by a local MiniLM embedding model.
- * It runs fully in-browser via @xenova/transformers and caches embeddings
- * to avoid recomputation. Entries are trimmed and capped to keep resource
- * usage predictable on devices without a GPU.
+ * Embedding and search run in a dedicated worker to keep the UI thread responsive.
  */
 export class EmbeddingMemory {
-  private embedderPromise: Promise<EmbeddingPipeline> | null = null;
+  private readonly worker: Worker;
   private readonly entries: MemoryEntry[] = [];
-  private readonly cache = new Map<string, Float32Array>();
   private readonly maxEntries: number;
+  private readonly pendingRequests = new Map<
+    string,
+    { resolve: (response: WorkerResponse) => void; type: WorkerRequest["type"] }
+  >();
 
   constructor(maxEntries = 64) {
     this.maxEntries = maxEntries;
-    env.allowLocalModels = false;
-    env.useBrowserCache = true;
-    env.allowRemoteModels = true;
-    try {
-      (env.backends.onnx as any).wasm.numThreads = 1;
-    } catch {
-      // Defaults are fine if the backend configuration is unavailable.
-    }
+    this.worker = new Worker(new URL("./embedding.worker.ts", import.meta.url), {
+      type: "module",
+    });
+    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const { requestId } = event.data;
+      const pending = this.pendingRequests.get(requestId);
+      if (pending) {
+        pending.resolve(event.data);
+        this.pendingRequests.delete(requestId);
+      }
+    };
+
+    this.worker.onerror = (error) => {
+      console.warn("Embedding worker error", error);
+      this.pendingRequests.forEach((pending, requestId) => {
+        const fallback: WorkerResponse = (() => {
+          switch (pending.type) {
+            case "search":
+              return { type: "search_result", requestId, results: [] };
+            case "warmup":
+              return { type: "warmup_complete", requestId };
+            default:
+              return { type: "embed_result", requestId, vector: new Float32Array() };
+          }
+        })();
+        pending.resolve(fallback);
+      });
+      this.pendingRequests.clear();
+    };
   }
 
   async warmup() {
-    await this.getEmbedder();
+    await this.sendToWorker({ type: "warmup", requestId: this.requestId() });
   }
 
   async resetWithMessages(messages: Message[]) {
@@ -74,14 +99,28 @@ export class EmbeddingMemory {
     const content = query.trim();
     if (!content || this.entries.length === 0) return [];
 
-    const queryEmbedding = await this.embed(content);
-    const scored = this.entries
-      .map((entry) => ({ ...entry, score: this.cosineSimilarity(queryEmbedding, entry.embedding) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .filter((entry) => entry.score > 0.2);
+    const snapshot = this.entries.slice();
 
-    return scored;
+    const response = await this.sendToWorker({
+      type: "search",
+      requestId: this.requestId(),
+      query: content,
+      entries: snapshot,
+      limit,
+    });
+
+    if (response.type !== "search_result") return [];
+
+    return response.results
+      .map((result) => {
+        const entry = snapshot[result.index];
+        if (!entry) return null;
+        return {
+          ...entry,
+          score: result.score,
+        };
+      })
+      .filter((entry): entry is ScoredMemoryEntry => entry !== null);
   }
 
   formatSummaries(entries: ScoredMemoryEntry[]): string {
@@ -94,39 +133,32 @@ export class EmbeddingMemory {
       .join("\n");
   }
 
-  private async getEmbedder(): Promise<EmbeddingPipeline> {
-    if (!this.embedderPromise) {
-      this.embedderPromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
-        quantized: true,
-      }) as Promise<EmbeddingPipeline>;
-    }
-    return this.embedderPromise;
-  }
-
   private async embed(text: string): Promise<Float32Array> {
-    if (this.cache.has(text)) {
-      return this.cache.get(text)!;
+    const response = await this.sendToWorker({
+      type: "embed",
+      requestId: this.requestId(),
+      text,
+    });
+
+    if (response.type !== "embed_result") {
+      return new Float32Array();
     }
 
-    const embedder = await this.getEmbedder();
-    const output = await embedder(text, { pooling: "mean", normalize: true });
-    const vector = output.data instanceof Float32Array ? output.data : Float32Array.from(output.data);
-    this.cache.set(text, vector);
-    return vector;
+    return response.vector;
   }
 
-  private cosineSimilarity(a: Float32Array, b: Float32Array) {
-    let dot = 0;
-    let normA = 0;
-    let normB = 0;
-    const length = Math.min(a.length, b.length);
-    for (let i = 0; i < length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+  private sendToWorker(message: WorkerRequest): Promise<WorkerResponse> {
+    return new Promise((resolve) => {
+      this.pendingRequests.set(message.requestId, { resolve, type: message.type });
+      this.worker.postMessage(message);
+    });
+  }
+
+  private requestId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
     }
-    if (normA === 0 || normB === 0) return 0;
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
   private truncate(content: string, limit = 320) {
