@@ -758,6 +758,7 @@ Règles :
 
       const traceTimestamp = Date.now();
 
+      const traceTimestamp = Date.now();
       setReasoningTrace({
         id: traceTimestamp,
         requestedAction: decision.action,
