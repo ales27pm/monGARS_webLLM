@@ -547,12 +547,20 @@ export const normalizeDecision = (raw: string): DecisionResult => {
   return { ...result, warnings, diagnostics } satisfies DecisionResult;
 };
 
+type DecisionHints = {
+  freshDataHint?: string | null;
+};
+
 export const buildDecisionMessages = (
   inputText: string,
   recentHistory: Message[],
   toolSpecPrompt: string,
+  hints?: DecisionHints,
 ) => {
   const contextualHints = buildContextualHints(inputText, recentHistory);
+  const freshDataLine = hints?.freshDataHint
+    ? `Indice automatique (à valider) suggérant un besoin potentiel de données fraîches : "${hints.freshDataHint}". Ne l'applique que si pertinent.`
+    : "Indice automatique : aucun besoin de données fraîches détecté.";
 
   return [
     { role: "system", content: DECISION_SYSTEM_PROMPT },
@@ -562,6 +570,7 @@ export const buildDecisionMessages = (
         `Requête utilisateur:\n${inputText}\n\n` +
         `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
         `Profil contextuel à exploiter sans l'ignorer:\n${contextualHints}\n\n` +
+        `${freshDataLine}\n` +
         `Outil disponible: ${toolSpecPrompt}\n` +
         `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
     },
@@ -591,12 +600,14 @@ export async function decideAction(
   history: Message[],
   toolSpecPrompt: string,
   signal?: AbortSignal,
+  hints?: DecisionHints,
 ): Promise<DecisionResult> {
   const recentHistory = history.slice(-MAX_CONTEXT_MESSAGES);
   const decisionMessages = buildDecisionMessages(
     inputText,
     recentHistory,
     toolSpecPrompt,
+    hints,
   );
 
   const decisionCompletion = await engine.chat.completions.create({
