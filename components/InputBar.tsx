@@ -1,20 +1,42 @@
-import React, { useState, useRef, useEffect } from 'react';
-import type { EngineStatus } from '../types';
+import React, { useState, useRef, useEffect } from "react";
+import type { EngineStatus } from "../types";
+import { useSpeech } from "../useSpeech";
 
 interface InputBarProps {
   onSend: (text: string) => void;
   onStop: () => void;
   isGenerating: boolean;
   engineStatus: EngineStatus;
+  assistantText: string;
 }
 
-export const InputBar: React.FC<InputBarProps> = ({ onSend, onStop, isGenerating, engineStatus }) => {
-  const [text, setText] = useState('');
+export const InputBar: React.FC<InputBarProps> = ({
+  onSend,
+  onStop,
+  isGenerating,
+  engineStatus,
+  assistantText,
+}) => {
+  const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const {
+    startRecording,
+    stopRecording,
+    speak,
+    isRecording,
+    isTranscribing,
+    isSpeaking,
+    error,
+  } = useSpeech({
+    onTranscription: (transcript) => {
+      setText((prev) => (prev ? `${prev}\n${transcript}` : transcript));
+    },
+  });
 
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = "auto";
       const scrollHeight = textareaRef.current.scrollHeight;
       textareaRef.current.style.height = `${Math.min(scrollHeight, 150)}px`;
     }
@@ -23,21 +45,21 @@ export const InputBar: React.FC<InputBarProps> = ({ onSend, onStop, isGenerating
   const handleSend = () => {
     if (text.trim()) {
       onSend(text.trim());
-      setText('');
+      setText("");
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-    if (e.key === 'Escape' && isGenerating) {
-        onStop();
+    if (e.key === "Escape" && isGenerating) {
+      onStop();
     }
   };
 
-  const isEngineReady = engineStatus === 'ready';
+  const isEngineReady = engineStatus === "ready";
   const isDisabled = !isEngineReady || isGenerating;
 
   return (
@@ -48,6 +70,18 @@ export const InputBar: React.FC<InputBarProps> = ({ onSend, onStop, isGenerating
             <i className="fa-solid fa-stop"></i>
           </button>
         )}
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          title={isRecording ? "Arrêter l'enregistrement" : "Dicter avec la voix"}
+          className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+            isRecording
+              ? "bg-error text-white hover:bg-error/80"
+              : "text-primary-DEFAULT hover:bg-primary-light/10"
+          }`}
+          disabled={!isEngineReady || isGenerating}
+        >
+          <i className={`fa-solid ${isRecording ? "fa-microphone-slash" : "fa-microphone"}`}></i>
+        </button>
         <textarea
           ref={textareaRef}
           value={text}
@@ -58,12 +92,29 @@ export const InputBar: React.FC<InputBarProps> = ({ onSend, onStop, isGenerating
           disabled={!isEngineReady}
           className="flex-1 bg-transparent border-none outline-none text-sm resize-none p-2 placeholder-slate-400 dark:placeholder-slate-500 disabled:cursor-not-allowed"
         />
+        <button
+          onClick={() => speak(assistantText)}
+          disabled={!assistantText || isSpeaking || !isEngineReady}
+          title={assistantText ? "Lire la dernière réponse" : "Aucune réponse à lire"}
+          className="w-10 h-10 flex-shrink-0 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-primary-light/10 rounded-full transition-colors disabled:cursor-not-allowed disabled:text-slate-400"
+        >
+          <i className={`fa-solid ${isSpeaking ? "fa-volume-low" : "fa-volume-high"}`}></i>
+        </button>
         <button onClick={handleSend} disabled={isDisabled || !text.trim()} title="Envoyer (Entrée)" className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-primary-DEFAULT text-white rounded-full hover:bg-primary-hover disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors">
           <i className="fa-solid fa-paper-plane"></i>
         </button>
       </div>
-      <div className="mt-2 text-center text-xs text-slate-400 dark:text-slate-500">
-        <span>Appuie sur <kbd className="font-sans bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">Entrée</kbd> pour envoyer · <kbd className="font-sans bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">Esc</kbd> pour arrêter</span>
+      <div className="mt-2 text-center text-xs text-slate-400 dark:text-slate-500 space-y-1">
+        <div>
+          <span>Appuie sur <kbd className="font-sans bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">Entrée</kbd> pour envoyer · <kbd className="font-sans bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">Esc</kbd> pour arrêter</span>
+        </div>
+        {(isRecording || isTranscribing || error) && (
+          <div className="flex items-center justify-center gap-2 text-amber-600 dark:text-amber-400">
+            {isRecording && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>Enregistrement...</span>}
+            {isTranscribing && <span>Transcription locale...</span>}
+            {error && <span className="text-error">{error}</span>}
+          </div>
+        )}
       </div>
     </>
   );
