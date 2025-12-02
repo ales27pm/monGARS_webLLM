@@ -61,6 +61,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isReloadingRef = useRef(false);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>("idle");
   const [initProgress, setInitProgress] = useState<InitProgressReport>({
     progress: 0,
@@ -244,15 +245,22 @@ Règles :
     return true;
   }, [addToast]);
 
-  const loadEngine = async () => {
-    // Wait for WebGPU support check. If unsupported, abort loading.
-    if (engine || !(await checkWebGPU())) return;
+  const loadEngine = useCallback(
+    async (forceReload = false): Promise<MLCEngine | null> => {
+      if (isReloadingRef.current) return engine;
 
-    setEngineStatus("loading");
-    setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+      const existingEngine = engine;
+      if (existingEngine && !forceReload) return existingEngine;
 
-    try {
-      const selectedModel = config.modelId;
+      // Wait for WebGPU support check. If unsupported, abort loading.
+      if (!(await checkWebGPU())) return null;
+
+      isReloadingRef.current = true;
+      setEngineStatus("loading");
+      setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+
+      try {
+        const selectedModel = config.modelId;
 
       const webllm = await getWebLLM();
       const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
@@ -289,7 +297,8 @@ Règles :
         "success",
       );
 
-      if (messages.length === 0) {
+      setMessages((prev) => {
+        if (prev.length > 0) return prev;
         const welcomeMessage: Message = {
           id: `msg-${Date.now()}`,
           role: "assistant",
@@ -299,23 +308,62 @@ Règles :
             `Pose-moi une question, ou demande-moi d'expliquer quelque chose.`,
           timestamp: Date.now(),
         };
-        setMessages([welcomeMessage]);
-      }
-    } catch (err: any) {
-      console.error("Engine loading error:", err);
-      setEngineStatus("error");
-      setInitProgress({
-        progress: 0,
-        text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
+        return [welcomeMessage];
       });
-      addToast(
-        "Erreur de chargement",
-        err?.message ||
-          "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
-        "error",
-      );
-    }
-  };
+
+        return newEngine;
+      } catch (err: any) {
+        console.error("Engine loading error:", err);
+        setEngineStatus("error");
+        setInitProgress({
+          progress: 0,
+          text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
+        });
+        addToast(
+          "Erreur de chargement",
+          err?.message ||
+            "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
+          "error",
+        );
+        return null;
+      } finally {
+        isReloadingRef.current = false;
+      }
+    },
+    [addToast, checkWebGPU, config.modelId, engine],
+  );
+
+  const handleEngineError = useCallback(
+    async (err: any) => {
+      const message = err?.message || String(err);
+      if (/disposed/i.test(message)) {
+        console.warn("WebLLM engine disposed, attempting recovery", err);
+        setEngineStatus("error");
+        setInitProgress({
+          progress: 0,
+          text: "Moteur WebGPU relancé après une erreur interne.",
+        });
+        setEngine(null);
+        addToast(
+          "Redémarrage du moteur",
+          "Le moteur a été réinitialisé après une erreur WebGPU. Nouvelle tentative en cours...",
+          "warning",
+        );
+        try {
+          const newEngine = await loadEngine(true);
+          if (newEngine) {
+            return true;
+          }
+          console.error("Engine recovery failed: loadEngine did not initialize a new engine");
+        } catch (loadErr) {
+          console.error("Engine recovery failed during loadEngine:", loadErr);
+        }
+        return false;
+      }
+      return false;
+    },
+    [addToast, loadEngine],
+  );
 
   useEffect(() => {
     let statsInterval: ReturnType<typeof setInterval>;
@@ -472,7 +520,9 @@ Règles :
       throw new Error("Moteur non initialisé");
     }
 
-    const chunks = await engine.chat.completions.create({
+    const currentEngine = engine;
+
+    const chunks = await currentEngine.chat.completions.create({
       messages: history,
       temperature: config.temperature,
       max_tokens: config.maxTokens,
@@ -498,8 +548,10 @@ Règles :
   };
 
   const handleSend = async (inputText: string) => {
-    if (!engine || !inputText.trim() || isGenerating) {
-      if (!engine)
+    const currentEngine = engine;
+
+    if (!currentEngine || !inputText.trim() || isGenerating) {
+      if (!currentEngine)
         addToast(
           "Moteur non démarré",
           'Cliquez sur "Démarrer le moteur".',
@@ -533,7 +585,7 @@ Règles :
         ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
         : "";
       const decision = await decideAction(
-        engine,
+        currentEngine,
         inputText,
         conversationForDecision,
         toolSpecPrompt,
@@ -618,11 +670,14 @@ Règles :
       });
     } catch (err: any) {
       console.error("Chat / tool error:", err);
-      addToast(
-        "Erreur",
-        err?.message || "Une erreur est survenue pendant la génération.",
-        "error",
-      );
+      const recovered = await handleEngineError(err);
+      if (!recovered) {
+        addToast(
+          "Erreur",
+          err?.message || "Une erreur est survenue pendant la génération.",
+          "error",
+        );
+      }
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === aiMessagePlaceholder.id
