@@ -271,16 +271,10 @@ Règles :
         }
       ) => Promise<any>;
 
-      const appConfig = {
-        model_list: [
-          {
-            model_id: MODEL_ID,
-            model_lib_url:
-              'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_79/Qwen2.5-0.5B-Instruct-q4f16_1-webgpu.wasm',
-          },
-        ],
-      };
-
+      // Ask WebLLM to create the engine for the selected model.  We do not
+      // provide a custom `appConfig` here. When the model ID corresponds to
+      // one of the officially supported models (including Qwen2.5), WebLLM
+      // automatically fetches the appropriate WASM runtime and model files.
       const newEngine = (await CreateMLCEngineFn(selectedModel, {
         initProgressCallback: (report: InitProgressReport) => {
           setInitProgress({
@@ -288,7 +282,10 @@ Règles :
             text: report.text,
           });
         },
-        appConfig,
+        // Note: No `appConfig` is passed. Passing an incorrect
+        // configuration can lead to cryptic errors (e.g. reading
+        // `.endsWith` on undefined). Let the runtime infer the correct
+        // configuration based on `selectedModel`.
       })) as MLCEngine;
 
       setEngine(newEngine);
