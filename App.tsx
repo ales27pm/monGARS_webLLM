@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { z } from "zod";
 
 let webLLMModulePromise: Promise<any> | null = null;
@@ -19,7 +25,6 @@ import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
-import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
   Config,
@@ -28,7 +33,7 @@ import type {
   InitProgressReport,
   MLCEngine,
 } from "./types";
-import { useSemanticMemory } from "./useSemanticMemory";
+import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
 import type { ScoredMemoryEntry } from "./memory";
 
@@ -140,7 +145,7 @@ const App: React.FC = () => {
     null,
   );
 
-  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
+  const { queryMemory, recordExchange } = useSemanticMemoryHook(messages, {
     enabled: config.semanticMemoryEnabled,
     maxEntries: config.semanticMemoryMaxEntries,
     neighbors: config.semanticMemoryNeighbors,
@@ -559,12 +564,9 @@ Règles :
       const proxiedUrl = rawUrl.startsWith("http")
         ? `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`
         : rawUrl;
-      const response = await fetch(
-        proxiedUrl,
-        {
-          signal: controller.signal,
-        },
-      );
+      const response = await fetch(proxiedUrl, {
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new Error(
           `Network response was not ok. Status: ${response.status}`,
@@ -750,8 +752,7 @@ Règles :
       const effectiveAction = searchQueryToUse ? "search" : "respond";
       let finalAiResponse = "";
 
-      let lastAnswerHistory: { role: string; content: string }[] | null =
-        null;
+      let lastAnswerHistory: { role: string; content: string }[] | null = null;
 
       if (decision.action === "search" && !decision.query) {
         console.warn("Décision de recherche sans requête fournie", decision);
@@ -865,7 +866,8 @@ Règles :
         );
 
         if (!finalAiResponse.trim()) {
-          finalAiResponse = "Désolé, je n'ai pas pu générer de réponse. Veuillez reformuler votre question.";
+          finalAiResponse =
+            "Désolé, je n'ai pas pu générer de réponse. Veuillez reformuler votre question.";
         }
       }
 
