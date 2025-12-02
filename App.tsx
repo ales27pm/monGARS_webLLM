@@ -148,6 +148,10 @@ Règles :
     };
   });
 
+  const lastAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
+
   const addToast = useCallback(
     (
       title: string,
@@ -834,6 +838,7 @@ Règles :
               onStop={handleStop}
               isGenerating={isGenerating}
               engineStatus={engineStatus}
+              assistantText={lastAssistantMessage || ""}
             />
           </div>
         </div>
