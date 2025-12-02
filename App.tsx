@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { z } from "zod";
 
 let webLLMModulePromise: Promise<any> | null = null;
@@ -18,6 +18,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
+import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
 import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
@@ -28,6 +29,7 @@ import type {
   MLCEngine,
 } from "./types";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
+import type { ScoredMemoryEntry } from "./memory";
 
 declare global {
   interface Navigator {
@@ -51,8 +53,11 @@ const searchTool = {
   },
 };
 
-const toolSpecPrompt = `- ${searchTool.name}: ${searchTool.description}
-  params schema: ${JSON.stringify(searchTool.parameters)}`;
+const formatToolSpecPrompt = (searchEnabled: boolean, apiBase: string) =>
+  searchEnabled
+    ? `- ${searchTool.name}: ${searchTool.description} (API ${apiBase})
+  params schema: ${JSON.stringify(searchTool.parameters)}`
+    : "- Recherche web désactivée par l'utilisateur (aucun appel réseau autorisé).";
 
 type Source = { title: string; url: string };
 
@@ -62,6 +67,19 @@ const FRESH_DATA_PATTERNS = [
   /\b(?:aujourd'hui|today|en\s+ce\s+moment|ce\s+(?:jour|soir|matin))\b/i,
   /\b(?:heure\s+(?:actuelle|locale)|quelle\s+heure\s+est-il|current\s+time)\b/i,
 ];
+
+type ReasoningTrace = {
+  id: number;
+  requestedAction: "search" | "respond";
+  effectiveAction: "search" | "respond";
+  query?: string | null;
+  plan: string;
+  rationale?: string;
+  memoryContext: string;
+  memoryEnabled: boolean;
+  memoryResults: ScoredMemoryEntry[];
+  timestamp: number;
+};
 
 const normalizeQuery = (text: string) =>
   text
@@ -95,8 +113,15 @@ const App: React.FC = () => {
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
+    null,
+  );
 
-  const { buildMemoryContext, recordExchange } = useSemanticMemory(messages);
+  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
+    enabled: config.semanticMemoryEnabled,
+    maxEntries: config.semanticMemoryMaxEntries,
+    neighbors: config.semanticMemoryNeighbors,
+  });
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -125,6 +150,19 @@ const App: React.FC = () => {
     ),
   });
 
+  const getBooleanSetting = (key: string, fallback: boolean) => {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return raw === "true";
+  };
+
+  const getNumberSetting = (key: string, fallback: number) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
   const [config, setConfig] = useState<Config>(() => {
     return {
       modelId: localStorage.getItem("mg_model") || MODEL_ID,
@@ -145,8 +183,23 @@ Règles :
       maxTokens: parseInt(localStorage.getItem("mg_max_tokens") || "512"),
       theme:
         (localStorage.getItem("mg_theme") as "light" | "dark" | null) || "dark",
+      semanticMemoryEnabled: getBooleanSetting(
+        "mg_semantic_memory_enabled",
+        true,
+      ),
+      semanticMemoryMaxEntries: getNumberSetting("mg_semantic_max_entries", 96),
+      semanticMemoryNeighbors: getNumberSetting("mg_semantic_neighbors", 4),
+      toolSearchEnabled: getBooleanSetting("mg_tool_search_enabled", true),
+      searchApiBase:
+        localStorage.getItem("mg_search_api_base") ||
+        "https://api.duckduckgo.com",
     };
   });
+
+  const toolSpecPrompt = useMemo(
+    () => formatToolSpecPrompt(config.toolSearchEnabled, config.searchApiBase),
+    [config.searchApiBase, config.toolSearchEnabled],
+  );
 
   const lastAssistantMessage = (() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -447,6 +500,7 @@ Règles :
   const clearConversation = useCallback(() => {
     setMessages([]);
     setSources([]);
+    setReasoningTrace(null);
     localStorage.removeItem("mg_conversation_default");
     addToast(
       "Conversation réinitialisée",
@@ -459,6 +513,14 @@ Règles :
     query: string,
     parentSignal?: AbortSignal | null,
   ): Promise<{ content: string; sources: Source[] }> => {
+    if (!config.toolSearchEnabled) {
+      return {
+        content:
+          "La recherche web est désactivée dans les paramètres. Réponds sans appel réseau.",
+        sources: [],
+      };
+    }
+
     addToast("Recherche Web", `Recherche de "${query}"...`, "info");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
@@ -469,12 +531,13 @@ Règles :
     }
 
     try {
+      const apiBase = config.searchApiBase || "https://api.duckduckgo.com";
+      const rawUrl = `${apiBase}?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+      const proxiedUrl = rawUrl.startsWith("http")
+        ? `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`
+        : rawUrl;
       const response = await fetch(
-        `https://corsproxy.io/?${encodeURIComponent(
-          `https://api.duckduckgo.com/?q=${encodeURIComponent(
-            query,
-          )}&format=json&no_html=1`,
-        )}`,
+        proxiedUrl,
         {
           signal: controller.signal,
         },
@@ -629,9 +692,9 @@ Règles :
 
     try {
       const conversationForDecision = [...messages, userMessage];
-      const memoryContext = await buildMemoryContext(trimmedInput);
-      const memoryPrefix = memoryContext
-        ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
+      const memoryLookup = await queryMemory(trimmedInput);
+      const memoryPrefix = memoryLookup.context
+        ? `Mémoire sémantique pertinente :\n${memoryLookup.context}\n\n`
         : "";
       const freshDataHint = deriveFreshDataHint(trimmedInput);
       const decision = await decideAction(
@@ -656,8 +719,12 @@ Règles :
 
       const decisionPlan =
         decision.plan?.trim() || "Réponse directe structurée";
+      const searchAllowed = config.toolSearchEnabled;
       const searchQueryToUse =
-        decision.action === "search" && decision.query ? decision.query : null;
+        searchAllowed && decision.action === "search" && decision.query
+          ? decision.query
+          : null;
+      const effectiveAction = searchQueryToUse ? "search" : "respond";
       let finalAiResponse = "";
 
       let lastAnswerHistory: { role: string; content: string }[] | null =
@@ -671,6 +738,27 @@ Règles :
           "warning",
         );
       }
+
+      if (decision.action === "search" && !searchAllowed) {
+        addToast(
+          "Recherche désactivée",
+          "L'outil de recherche web est désactivé dans les paramètres. Réponse directe appliquée.",
+          "info",
+        );
+      }
+
+      setReasoningTrace({
+        id: Date.now(),
+        requestedAction: decision.action,
+        effectiveAction,
+        query: searchQueryToUse,
+        plan: decisionPlan,
+        rationale: decision.rationale,
+        memoryContext: memoryLookup.context,
+        memoryEnabled: config.semanticMemoryEnabled,
+        memoryResults: memoryLookup.results,
+        timestamp: Date.now(),
+      });
 
       if (searchQueryToUse) {
         const query = searchQueryToUse;
@@ -820,6 +908,23 @@ Règles :
       localStorage.setItem("mg_max_tokens", updatedConfig.maxTokens.toString());
       // FIX: Explicitly cast newTheme to Config['theme'] to satisfy type checker.
       localStorage.setItem("mg_theme", updatedConfig.theme as Config["theme"]);
+      localStorage.setItem(
+        "mg_semantic_memory_enabled",
+        String(updatedConfig.semanticMemoryEnabled),
+      );
+      localStorage.setItem(
+        "mg_semantic_max_entries",
+        updatedConfig.semanticMemoryMaxEntries.toString(),
+      );
+      localStorage.setItem(
+        "mg_semantic_neighbors",
+        updatedConfig.semanticMemoryNeighbors.toString(),
+      );
+      localStorage.setItem(
+        "mg_tool_search_enabled",
+        String(updatedConfig.toolSearchEnabled),
+      );
+      localStorage.setItem("mg_search_api_base", updatedConfig.searchApiBase);
       return updatedConfig;
     });
 
@@ -871,6 +976,10 @@ Règles :
           />
           {/* FIX: Changed `searchQuery` prop to `query` as expected by `SearchIndicator` component. */}
           <SearchIndicator query={searchQuery} />
+          <ReasoningVisualizer
+            trace={reasoningTrace}
+            onClear={() => setReasoningTrace(null)}
+          />
           <div className="flex-1 border-t border-slate-100 dark:border-slate-800">
             {engineStatus !== "ready" ? (
               <EmptyState
