@@ -56,6 +56,26 @@ const toolSpecPrompt = `- ${searchTool.name}: ${searchTool.description}
 
 type Source = { title: string; url: string };
 
+const FRESH_DATA_PATTERNS = [
+  /\bmet[eé]o|m[eé]t[eé]o|temp[eé]rature|forecast|pr[eé]vision/i,
+  /\bactualité|news|derni[eè]res?\s+infos?/i,
+  /\baujourd'hui|today|ce\s+jour|maintenant/i,
+  /\bheure\s+actuelle|time\b/i,
+];
+
+const normalizeQuery = (text: string) =>
+  text
+    .replace(/\s+/g, " ")
+    .replace(/[?!.]+$/, "")
+    .trim()
+    .slice(0, 180);
+
+const deriveFreshDataQuery = (text: string) => {
+  if (!text) return null;
+  const match = FRESH_DATA_PATTERNS.some((pattern) => pattern.test(text));
+  return match ? normalizeQuery(text) : null;
+};
+
 const App: React.FC = () => {
   const [engine, setEngine] = useState<MLCEngine | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -413,6 +433,17 @@ Règles :
     });
   };
 
+  const clearConversation = useCallback(() => {
+    setMessages([]);
+    setSources([]);
+    localStorage.removeItem("mg_conversation_default");
+    addToast(
+      "Conversation réinitialisée",
+      "Historique, sources et mémoire ont été effacés.",
+      "info",
+    );
+  }, [addToast]);
+
   const performWebSearch = async (
     query: string,
     parentSignal?: AbortSignal | null,
@@ -550,7 +581,14 @@ Règles :
   const handleSend = async (inputText: string) => {
     const currentEngine = engine;
 
-    if (!currentEngine || !inputText.trim() || isGenerating) {
+    const trimmedInput = inputText.trim();
+
+    if (trimmedInput === "/clear") {
+      clearConversation();
+      return;
+    }
+
+    if (!currentEngine || !trimmedInput || isGenerating) {
       if (!currentEngine)
         addToast(
           "Moteur non démarré",
@@ -566,7 +604,7 @@ Règles :
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: "user",
-      content: inputText,
+      content: trimmedInput,
       timestamp: Date.now(),
     };
     const aiMessagePlaceholder: Message = {
@@ -580,13 +618,13 @@ Règles :
 
     try {
       const conversationForDecision = [...messages, userMessage];
-      const memoryContext = await buildMemoryContext(inputText);
+      const memoryContext = await buildMemoryContext(trimmedInput);
       const memoryPrefix = memoryContext
         ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
         : "";
       const decision = await decideAction(
         currentEngine,
-        inputText,
+        trimmedInput,
         conversationForDecision,
         toolSpecPrompt,
         abortControllerRef.current?.signal,
@@ -594,10 +632,21 @@ Règles :
 
       const decisionPlan =
         decision.plan?.trim() || "Réponse directe structurée";
+      const fallbackSearchPlan =
+        "1) Identifier l'information demandée nécessitant des données fraîches.\n" +
+        "2) Exploiter les résultats web fiables.\n" +
+        "3) Répondre en français clair en citant les sources réelles.";
+      const forcedQuery =
+        decision.action === "respond" ? deriveFreshDataQuery(trimmedInput) : null;
+
+      const searchQueryToUse =
+        decision.action === "search" && decision.query
+          ? decision.query
+          : forcedQuery;
       let finalAiResponse = "";
 
-      if (decision.action === "search" && decision.query) {
-        const { query } = decision;
+      if (searchQueryToUse) {
+        const query = searchQueryToUse;
         setSearchQuery(query);
 
         const searchResult = await performWebSearch(
@@ -607,10 +656,12 @@ Règles :
         setSearchQuery(null);
 
         const historyForAnswer = buildAnswerHistory(
-          decisionPlan,
+          decision.action === "search" && decision.query
+            ? decisionPlan
+            : fallbackSearchPlan,
           config,
           conversationForDecision,
-          `${memoryPrefix}${inputText}\n\n` +
+          `${memoryPrefix}${trimmedInput}\n\n` +
             `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
             `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
         );
@@ -639,7 +690,7 @@ Règles :
             decisionPlan,
             config,
             conversationForDecision,
-            `${memoryPrefix}${inputText}`,
+            `${memoryPrefix}${trimmedInput}`,
           );
 
           finalAiResponse = await streamAnswer(
