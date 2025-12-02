@@ -28,6 +28,7 @@ import type {
   InitProgressReport,
   MLCEngine,
 } from "./types";
+import { useSemanticMemory } from "./useSemanticMemory";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
 import type { ScoredMemoryEntry } from "./memory";
 
@@ -92,6 +93,28 @@ const deriveFreshDataHint = (text: string) => {
   if (!text) return null;
   const match = FRESH_DATA_PATTERNS.find((pattern) => pattern.test(text));
   return match ? normalizeQuery(text) : null;
+};
+
+const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
+
+const normalizeSearchApiBase = (value: string | null | undefined) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_SEARCH_API_BASE;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return DEFAULT_SEARCH_API_BASE;
+    }
+
+    const normalizedPath = url.pathname.endsWith("/")
+      ? url.pathname
+      : `${url.pathname}/`;
+
+    return `${url.origin}${normalizedPath}`;
+  } catch {
+    return DEFAULT_SEARCH_API_BASE;
+  }
 };
 
 const App: React.FC = () => {
@@ -900,8 +923,16 @@ Règles :
   };
 
   const handleSaveSettings = (newConfig: Config) => {
+    const normalizedSearchApiBase = normalizeSearchApiBase(
+      newConfig.searchApiBase,
+    );
+
     setConfig((prevConfig) => {
-      const updatedConfig = { ...prevConfig, ...newConfig };
+      const updatedConfig = {
+        ...prevConfig,
+        ...newConfig,
+        searchApiBase: normalizedSearchApiBase,
+      };
       localStorage.setItem("mg_model", updatedConfig.modelId);
       localStorage.setItem("mg_system", updatedConfig.systemPrompt);
       localStorage.setItem("mg_temp", updatedConfig.temperature.toString());
