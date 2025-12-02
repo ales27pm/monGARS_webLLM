@@ -343,31 +343,104 @@ const promptCases: PromptCase[] = [
       ],
     },
   },
+  {
+    id: "inflation-search-required",
+    description:
+      "Demande de données très fraîches sans requête fournie : le pipeline doit signaler le besoin de recherche et l'absence de requête.",
+    userInput:
+      "Donne-moi les derniers chiffres d'inflation publiés ce mois-ci pour la zone euro avec une source.",
+    history: [
+      buildMessage(
+        "h13",
+        "assistant",
+        "Je peux vérifier les chiffres récents si nécessaire.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"respond","plan":"Répondre vite","rationale":"Données récentes à confirmer","response":""}',
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: true,
+      warningSubstrings: [
+        "Justification suggère search",
+        "Recherche requise mais requête de recherche absente",
+      ],
+    },
+  },
+  {
+    id: "python-313-ambiguous",
+    description:
+      "Réponse libre avec justification ambiguë : détecter les indices contradictoires entre l'absence de recherche et des nouveautés récentes.",
+    userInput:
+      "Je pense avoir déjà les infos, mais résume en deux phrases les nouveautés de Python 3.13 sans chercher.",
+    history: [
+      buildMessage(
+        "h14",
+        "assistant",
+        "Pas de recherche souhaitée si tu sais déjà.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      "action: respond\nplan: plan succinct\nrationale: sans chercher mais nouveautés Python 3.13 récentes\nresponse: Améliorations de performance et nouvelles APIs.",
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: false,
+      warningSubstrings: [
+        "Échec de parsing JSON",
+        "Justification suggère search",
+      ],
+    },
+  },
+  {
+    id: "openssl-search-plan",
+    description:
+      "Plan détaillé pour une action search : le pipeline doit garder search et ignorer la réponse fournie.",
+    userInput:
+      "Liste un plan d'investigation en 4 étapes avant de rechercher des correctifs récents pour OpenSSL.",
+    history: [
+      buildMessage("h15", "user", "Objectif: vérifier les patchs critiques."),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"search","query":"patch OpenSSL récents","plan":"Identifier la version;Lister les CVE;Prioriser les risques;Préparer le déploiement","rationale":"Vérifier les correctifs", "response":"Réponse accidentelle"}',
+    expectations: {
+      expectedAction: "search",
+      warningSubstrings: [
+        "Plan reformatté",
+        "Réponse finale fournie mais ignorée car l'action est search",
+      ],
+    },
+  },
 ];
 
 type NextPrompt = { title: string; prompt: string; objective: string };
 
 const nextRoundPrompts: NextPrompt[] = [
   {
-    title: "Recherche obligatoire sans requête",
+    title: "Actualités critiques avec recherche obligatoire",
     prompt:
-      "Donne-moi les derniers chiffres d'inflation publiés ce mois-ci pour la zone euro avec une source.",
+      "Résume les vulnérabilités zero-day Windows découvertes cette semaine avec une requête de recherche précise.",
     objective:
-      "Vérifier que le pipeline force un passage en search ou signale l'absence de requête lorsque des données très fraîches sont demandées.",
+      "Forcer la recherche pour des données critiques et fraîchement publiées et vérifier l'avertissement si la requête manque.",
   },
   {
-    title: "Réponse libre avec justification ambiguë",
+    title: "Checklist détaillée sans internet",
     prompt:
-      "Je pense avoir déjà les infos, mais résume en deux phrases les nouveautés de Python 3.13 sans chercher.",
+      "Donne une checklist en 5 points pour préparer une présentation technique sans utiliser Internet ni outils de recherche.",
     objective:
-      "Tester la détection d'indices contradictoires entre le refus implicite de recherche et une justification qui mentionne des nouveautés récentes.",
+      "Valider le maintien d'un plan complet en mode respond même si une requête de recherche superflue apparaît.",
   },
   {
-    title: "Plan détaillé pour action search",
+    title: "Récupération de réponse hors JSON",
     prompt:
-      "Liste un plan d'investigation en 4 étapes avant de rechercher des correctifs récents pour OpenSSL.",
+      "Fournis deux idées d'ateliers IA pour étudiants; si tu ne peux pas formatter en JSON, écris quand même la réponse complète.",
     objective:
-      "Valider que le plan ToT reste complet quand l'action finale est search et qu'une réponse accidentelle doit être ignorée.",
+      "Tester la robustesse de récupération de réponse libre et la signalisation des avertissements de fallback.",
   },
 ];
 

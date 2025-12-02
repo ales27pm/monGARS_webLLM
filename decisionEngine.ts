@@ -219,8 +219,28 @@ const detectActionHint = (
     "mise à jour",
     "source récente",
     "source recente",
+    "donnees fraiches",
+    "donnee fraiche",
+    "donnees du mois",
+    "derniers chiffres",
+    "ce mois-ci",
+    "mise a jour recente",
+    "mise à jour récente",
+    "donnée recente",
+    "donnee recente",
   ];
-  const respondHints = ["répondre", "réponse directe", "synthèse", "rédiger"];
+  const respondHints = [
+    "répondre",
+    "réponse directe",
+    "synthèse",
+    "rédiger",
+    "sans chercher",
+    "sans recherche",
+    "réponds directement",
+    "reponds directement",
+    "déjà les infos",
+    "deja les infos",
+  ];
 
   if (searchHints.some((hint) => normalized.includes(hint))) {
     return "search";
@@ -467,6 +487,17 @@ const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
   if (meta.finalAction === "search" && meta.hasResponse) {
     warnings.push(
       "Réponse finale fournie mais ignorée car l'action est search.",
+    );
+  }
+
+  if (
+    meta.finalAction === "respond" &&
+    !meta.hasQuery &&
+    (meta.planSuggestedAction === "search" ||
+      meta.rationaleSuggestedAction === "search")
+  ) {
+    warnings.push(
+      "Recherche requise mais requête de recherche absente, action respond conservée.",
     );
   }
 
