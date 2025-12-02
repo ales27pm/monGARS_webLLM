@@ -547,7 +547,7 @@ export const normalizeDecision = (raw: string): DecisionResult => {
   return { ...result, warnings, diagnostics } satisfies DecisionResult;
 };
 
-type DecisionHints = {
+export type DecisionHints = {
   freshDataHint?: string | null;
 };
 
@@ -558,9 +558,11 @@ export const buildDecisionMessages = (
   hints?: DecisionHints,
 ) => {
   const contextualHints = buildContextualHints(inputText, recentHistory);
-  const freshDataLine = hints?.freshDataHint
-    ? `Indice automatique (à valider) suggérant un besoin potentiel de données fraîches : "${hints.freshDataHint}". Ne l'applique que si pertinent.`
-    : "Indice automatique : aucun besoin de données fraîches détecté.";
+  const freshDataLine = hints
+    ? hints.freshDataHint
+      ? `Indice automatique (à valider) suggérant un besoin potentiel de données fraîches : "${hints.freshDataHint}". Ne l'applique que si pertinent.`
+      : "Indice automatique : aucun besoin de données fraîches détecté."
+    : "Indice automatique : aucune détection automatique fournie.";
 
   return [
     { role: "system", content: DECISION_SYSTEM_PROMPT },
