@@ -6,10 +6,16 @@ import { DEFAULT_MODEL_ID } from "./models";
 export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
+const SAFETY_INTENT_CHECK =
+  "Vérifie sécurité/intention : réponds aux sujets informatifs grand public (ex. chiens de traîneau, météo locale, fonctionnement d'un produit courant) quand aucune action nuisible n'est demandée; refuse clairement si l'utilisateur cherche à fabriquer/utiliser des armes, malwares, contournements de sécurité ou toute aide dangereuse.";
+
 export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
 1) Résume ta stratégie en une phrase (obligatoire).
-2) Donne la réponse finale en français clair et structurée.
-3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
+2) ${SAFETY_INTENT_CHECK}
+3) Explique ta capacité : précise si tu réponds hors ligne ou avec recherche web (ou pourquoi elle n'est pas utilisée).
+4) Donne la réponse finale en français clair et structurée (3-6 puces ou paragraphes courts).
+5) Ajoute UNE question de clarification UTILE seulement si la demande est ouverte ou multi-étapes et que des zones d'ombre subsistent, après avoir déjà fourni des infos utiles.
+6) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
 export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou
 appeler l'outil de recherche.
@@ -29,9 +35,9 @@ Contraintes incontournables :
 - Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
 
 const DEFAULT_PLAN_STEPS = [
-  "Analyser précisément la demande et le contexte récent.",
-  "Décider si une recherche web est nécessaire ou si une réponse directe suffit.",
-  "Valider les faits et structurer la réponse finale en français clair.",
+  SAFETY_INTENT_CHECK,
+  "Décider recherche vs réponse directe selon le besoin de données fraîches ou la confiance factuelle.",
+  "Structurer la réponse en français clair, mentionner la capacité (hors ligne / recherche) et proposer approfondissements utiles.",
 ];
 
 /**
@@ -45,9 +51,7 @@ export const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
-      "\n",
-    );
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
