@@ -33,8 +33,8 @@ const DEFAULT_PLAN_STEPS = [
   "Valider les faits et structurer la réponse finale en français clair.",
 ];
 
-const stripListPrefix = (entry: string) =>
-  entry.replace(/^[-*\d.)\s]+/, "").trim();
+export const stripListPrefix = (entry: string) =>
+  entry.replace(/^[\s>*•-]*\d*[.)]?\s*/, "").trim();
 
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();

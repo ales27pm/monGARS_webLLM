@@ -25,6 +25,8 @@ import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
+import { CapabilityPills } from "./components/CapabilityPills";
+import { HeroHeader } from "./components/HeroHeader";
 import type {
   Message,
   Config,
@@ -995,67 +997,7 @@ Règles :
     });
   };
 
-  const quickStatusColor =
-    engineStatus === "ready"
-      ? "bg-emerald-400/20 text-emerald-100 border-emerald-300/40"
-      : engineStatus === "loading"
-        ? "bg-amber-400/15 text-amber-100 border-amber-300/30"
-        : "bg-rose-400/15 text-rose-100 border-rose-300/30";
-  const quickStatusIcon =
-    engineStatus === "ready"
-      ? "fa-check"
-      : engineStatus === "loading"
-        ? "fa-circle-notch animate-spin"
-        : "fa-pause";
-
   const hasWebGPU = typeof navigator !== "undefined" && Boolean(navigator.gpu);
-
-  const capabilityTone = {
-    emerald:
-      "bg-emerald-50/70 dark:bg-emerald-900/40 border-emerald-200/70 dark:border-emerald-800 text-emerald-800 dark:text-emerald-100",
-    indigo:
-      "bg-indigo-50/70 dark:bg-indigo-900/40 border-indigo-200/70 dark:border-indigo-800 text-indigo-800 dark:text-indigo-100",
-    cyan: "bg-cyan-50/70 dark:bg-cyan-900/40 border-cyan-200/70 dark:border-cyan-800 text-cyan-800 dark:text-cyan-100",
-    slate:
-      "bg-slate-50/70 dark:bg-slate-900/50 border-slate-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-100",
-    amber:
-      "bg-amber-50/70 dark:bg-amber-900/40 border-amber-200/70 dark:border-amber-800 text-amber-800 dark:text-amber-100",
-    rose: "bg-rose-50/70 dark:bg-rose-900/40 border-rose-200/70 dark:border-rose-800 text-rose-800 dark:text-rose-100",
-  } as const;
-
-  const capabilityPills = useMemo(
-    () => [
-      {
-        icon: "fa-shield-halved",
-        label: "Confidentialité",
-        value: "100% locale",
-        tone: capabilityTone.emerald,
-      },
-      {
-        icon: "fa-satellite-dish",
-        label: "Recherche web",
-        value: config.toolSearchEnabled ? "Active" : "Désactivée",
-        tone: config.toolSearchEnabled
-          ? capabilityTone.indigo
-          : capabilityTone.slate,
-      },
-      {
-        icon: "fa-brain",
-        label: "Mémoire sémantique",
-        value: config.semanticMemoryEnabled ? "ON" : "OFF",
-        tone: config.semanticMemoryEnabled
-          ? capabilityTone.cyan
-          : capabilityTone.slate,
-      },
-      {
-        icon: "fa-microchip",
-        label: "Accélération",
-        value: hasWebGPU ? "WebGPU prête" : "CPU (fallback)",
-        tone: hasWebGPU ? capabilityTone.amber : capabilityTone.rose,
-      },
-    ],
-    [config.semanticMemoryEnabled, config.toolSearchEnabled, hasWebGPU],
-  );
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
@@ -1071,101 +1013,13 @@ Règles :
         onToggleTheme={toggleTheme}
       />
       <main className="flex-1 flex flex-col items-center px-4 py-6">
-        <div className="w-full max-w-4xl mb-4">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary-DEFAULT via-indigo-600 to-slate-900 text-white p-5 shadow-xl shadow-primary-DEFAULT/25">
-            <div className="absolute inset-y-0 right-0 w-1/2 bg-gradient-to-l from-white/10 to-transparent blur-2xl" />
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between relative z-[1]">
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/70">
-                  Mon Gars v2.1
-                </p>
-                <h1 className="text-2xl sm:text-3xl font-bold">
-                  Assistant IA local, prêt à répondre.
-                </h1>
-                <p className="text-sm text-white/70 max-w-2xl">
-                  Français natif, 100% privé grâce à WebGPU. Pose une question,
-                  dicte ta voix ou laisse l'IA chercher sur le web si
-                  nécessaire.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 min-w-[220px]">
-                <div
-                  className={`rounded-2xl border ${quickStatusColor} px-4 py-3 text-xs shadow-inner shadow-black/10 flex items-center gap-2`}
-                >
-                  <i
-                    className={`fa-solid ${quickStatusIcon}`}
-                    aria-hidden="true"
-                  />
-                  <div className="leading-tight">
-                    <p className="uppercase tracking-wide text-[10px] text-white/70">
-                      Statut moteur
-                    </p>
-                    <p className="font-semibold text-white">
-                      {engineStatus === "ready"
-                        ? "Prêt"
-                        : engineStatus === "loading"
-                          ? initProgress.text
-                          : "En attente"}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-xs shadow-inner shadow-black/10 flex items-center gap-2">
-                  <i className="fa-solid fa-shield-halved" aria-hidden="true" />
-                  <div className="leading-tight">
-                    <p className="uppercase tracking-wide text-[10px] text-white/70">
-                      Confidentialité
-                    </p>
-                    <p className="font-semibold text-white">100% locale</p>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/20 bg-white/5 px-4 py-3 text-xs flex items-center gap-2 shadow-inner shadow-black/10">
-                  <i
-                    className="fa-solid fa-wand-magic-sparkles"
-                    aria-hidden="true"
-                  />
-                  <div className="leading-tight">
-                    <p className="uppercase tracking-wide text-[10px] text-white/70">
-                      Mémoire sémantique
-                    </p>
-                    <p className="font-semibold text-white">
-                      {config.semanticMemoryEnabled ? "Activée" : "Désactivée"}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/20 bg-white/5 px-4 py-3 text-xs flex items-center gap-2 shadow-inner shadow-black/10">
-                  <i className="fa-solid fa-language" aria-hidden="true" />
-                  <div className="leading-tight">
-                    <p className="uppercase tracking-wide text-[10px] text-white/70">
-                      Langue
-                    </p>
-                    <p className="font-semibold text-white">Français natif</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HeroHeader
+          engineStatus={engineStatus}
+          initProgress={initProgress}
+          config={config}
+        />
 
-        <div className="w-full max-w-4xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {capabilityPills.map((pill) => (
-            <div
-              key={pill.label}
-              className={`rounded-2xl border px-4 py-3 shadow-sm backdrop-blur bg-white/40 dark:bg-slate-900/40 flex items-center gap-3 ${pill.tone}`}
-            >
-              <span className="shrink-0 rounded-xl bg-white/60 dark:bg-slate-800/60 px-3 py-2 shadow-inner shadow-black/10 text-primary-DEFAULT">
-                <i className={`fa-solid ${pill.icon}`} aria-hidden="true" />
-              </span>
-              <div className="leading-tight">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-300">
-                  {pill.label}
-                </p>
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {pill.value}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <CapabilityPills config={config} hasWebGPU={hasWebGPU} />
 
         <div className="w-full max-w-4xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-700/60 rounded-3xl shadow-lg shadow-slate-900/5 dark:shadow-black/30 backdrop-blur-sm flex flex-col overflow-hidden">
           <StatusBar

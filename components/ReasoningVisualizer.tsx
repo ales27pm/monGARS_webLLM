@@ -1,4 +1,5 @@
 import React from "react";
+import { stripListPrefix } from "../decisionEngine";
 import type { ScoredMemoryEntry } from "../memory";
 
 const formatEmbeddingPreview = (vector: Float32Array) => {
@@ -33,12 +34,6 @@ export const ReasoningVisualizer: React.FC<ReasoningVisualizerProps> = ({
   onClear,
 }) => {
   if (!trace) return null;
-
-  const stripListPrefix = (value: string) =>
-    value
-      // Remove ordered/unordered list markers (1), 1., -, •, etc.) and trim spaces
-      .replace(/^[\s>*-]*\d*[.)]?\s*/, "")
-      .trim();
 
   const planSteps = trace.plan
     .split(/\n+/)
