@@ -754,6 +754,10 @@ Règles :
           recoveryHistory,
           aiMessagePlaceholder.id,
         );
+
+        if (!finalAiResponse.trim()) {
+          finalAiResponse = "Désolé, je n'ai pas pu générer de réponse. Veuillez reformuler votre question.";
+        }
       }
 
       let updatedMessages: Message[] | null = null;
