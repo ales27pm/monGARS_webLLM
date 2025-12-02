@@ -57,10 +57,10 @@ const toolSpecPrompt = `- ${searchTool.name}: ${searchTool.description}
 type Source = { title: string; url: string };
 
 const FRESH_DATA_PATTERNS = [
-  /\bmet[eé]o|m[eé]t[eé]o|temp[eé]rature|forecast|pr[eé]vision/i,
-  /\bactualité|news|derni[eè]res?\s+infos?/i,
-  /\baujourd'hui|today|ce\s+jour|maintenant/i,
-  /\bheure\s+actuelle|time\b/i,
+  /\b(?:met[eé]o|m[eé]t[eé]o|temp[eé]rature|forecast|pr[eé]vision)s?\b/i,
+  /\b(?:actualit[eé]s?|news|derni[eè]res?\s+(?:infos?|nouvelles?))\b/i,
+  /\b(?:aujourd'hui|today|en\s+ce\s+moment|ce\s+(?:jour|soir|matin))\b/i,
+  /\b(?:heure\s+(?:actuelle|locale)|quelle\s+heure\s+est-il|current\s+time)\b/i,
 ];
 
 const normalizeQuery = (text: string) =>
@@ -70,9 +70,9 @@ const normalizeQuery = (text: string) =>
     .trim()
     .slice(0, 180);
 
-const deriveFreshDataQuery = (text: string) => {
+const deriveFreshDataHint = (text: string) => {
   if (!text) return null;
-  const match = FRESH_DATA_PATTERNS.some((pattern) => pattern.test(text));
+  const match = FRESH_DATA_PATTERNS.find((pattern) => pattern.test(text));
   return match ? normalizeQuery(text) : null;
 };
 
@@ -633,12 +633,14 @@ Règles :
       const memoryPrefix = memoryContext
         ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
         : "";
+      const freshDataHint = deriveFreshDataHint(trimmedInput);
       const decision = await decideAction(
         currentEngine,
         trimmedInput,
         conversationForDecision,
         toolSpecPrompt,
         abortControllerRef.current?.signal,
+        { freshDataHint },
       );
 
       const decisionDiagnostics = decision.diagnostics;
@@ -654,23 +656,21 @@ Règles :
 
       const decisionPlan =
         decision.plan?.trim() || "Réponse directe structurée";
-      const fallbackSearchPlan =
-        "1) Identifier l'information demandée nécessitant des données fraîches.\n" +
-        "2) Exploiter les résultats web fiables.\n" +
-        "3) Répondre en français clair en citant les sources réelles.";
-      const forcedQuery =
-        decision.action === "respond"
-          ? deriveFreshDataQuery(trimmedInput)
-          : null;
-
       const searchQueryToUse =
-        decision.action === "search" && decision.query
-          ? decision.query
-          : forcedQuery;
+        decision.action === "search" && decision.query ? decision.query : null;
       let finalAiResponse = "";
 
       let lastAnswerHistory: { role: string; content: string }[] | null =
         null;
+
+      if (decision.action === "search" && !decision.query) {
+        console.warn("Décision de recherche sans requête fournie", decision);
+        addToast(
+          "Recherche incomplète",
+          "La décision demandait une recherche mais sans requête. Réponse directe en cours.",
+          "warning",
+        );
+      }
 
       if (searchQueryToUse) {
         const query = searchQueryToUse;
@@ -683,9 +683,7 @@ Règles :
         setSearchQuery(null);
 
         const historyForAnswer = buildAnswerHistory(
-          decision.action === "search" && decision.query
-            ? decisionPlan
-            : fallbackSearchPlan,
+          decisionPlan,
           config,
           conversationForDecision,
           `${memoryPrefix}${trimmedInput}\n\n` +
