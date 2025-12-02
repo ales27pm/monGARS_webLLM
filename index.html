@@ -6,32 +6,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mon Gars – Assistant IA Local</title>
   <!--
-    The Tailwind CDN script uses `document.currentScript` internally. On some
-    versions of Safari, `document.currentScript` may be `null` during page load,
-    which causes a runtime error when the script attempts to access
-    `document.currentScript.src.endsWith(...)`. To work around this bug we
-    explicitly set `document.currentScript` to the last script tag if it is
-    missing before loading the Tailwind CDN. See
-    https://developer.mozilla.org/en-US/docs/Web/API/Document/currentScript
-    for details.
+    The Tailwind CDN script relies on `document.currentScript`. In certain
+    Safari and WKWebView builds this property is `null` while the script is
+    executing, which triggers a fatal "null is not an object" error inside the
+    Tailwind loader. We inject the Tailwind script manually and temporarily
+    override `document.currentScript` so the CDN script always sees a valid
+    element. The original descriptor is restored once the script finishes
+    loading to avoid side effects.
   -->
   <script>
-    // Safari fix: ensure `document.currentScript` is defined
-    (function fixCurrentScriptForTailwind() {
-      try {
-        if (typeof document !== 'undefined' && !document.currentScript) {
-          const scripts = document.getElementsByTagName('script');
-          if (scripts.length > 0) {
-            document.currentScript = scripts[scripts.length - 1];
+    (function loadTailwindWithCurrentScriptPolyfill() {
+      const tailwindSrc = "https://cdn.tailwindcss.com";
+      const tailwindScript = document.createElement("script");
+      tailwindScript.src = tailwindSrc;
+      tailwindScript.async = false;
+
+      const descriptor = Object.getOwnPropertyDescriptor(document, "currentScript");
+      const restoreCurrentScript = () => {
+        try {
+          if (descriptor) {
+            Object.defineProperty(document, "currentScript", descriptor);
+          } else {
+            delete (document as any).currentScript;
           }
+        } catch (error) {
+          console.warn("Unable to restore document.currentScript", error);
         }
-      } catch (e) {
-        // Ignore any errors here; if the workaround fails the Tailwind
-        // script will still attempt to load, and other polyfills may kick in.
+      };
+
+      try {
+        Object.defineProperty(document, "currentScript", {
+          configurable: true,
+          get() {
+            return tailwindScript;
+          },
+        });
+      } catch (error) {
+        // If the descriptor is non-configurable, fall back to a best-effort assignment.
+        try {
+          (document as any).currentScript = tailwindScript;
+        } catch (assignmentError) {
+          console.warn("document.currentScript polyfill failed", assignmentError);
+        }
       }
+
+      tailwindScript.addEventListener("load", restoreCurrentScript);
+      tailwindScript.addEventListener("error", restoreCurrentScript);
+
+      document.head.appendChild(tailwindScript);
     })();
   </script>
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <style>
