@@ -122,9 +122,19 @@ export const normalizeDecision = (raw: string) => {
     const normalized = {
       action: decision.data.action,
       plan: normalizePlan(decision.data.plan),
-      query: decision.data.query?.trim() || undefined,
-      response: decision.data.response?.trim() || undefined,
-      rationale: decision.data.rationale?.trim(),
+      const hasQuery = !!normalizedQuery;
+      const hasResponse = !!normalizedResponse;
+
+      let action = decision.data.action;
+
+      // If the model intends to search but provides no query, switch to respond.
+      // If it intends to respond but provides no response, switch to search.
+      if (action === "search" && !hasQuery) {
+        action = "respond";
+      } else if (action === "respond" && !hasResponse) {
+        action = "search";
+      }
+
     };
 
     const wantsSearch = normalized.action === "search" && !!normalized.query;
