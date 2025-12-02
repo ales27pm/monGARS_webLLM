@@ -122,6 +122,19 @@ const normalizeSearchApiBase = (value: string | null | undefined) => {
   }
 };
 
+const getBooleanSetting = (key: string, fallback: boolean) => {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === "true";
+};
+
+const getNumberSetting = (key: string, fallback: number) => {
+  const raw = localStorage.getItem(key);
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const App: React.FC = () => {
   const [engine, setEngine] = useState<MLCEngine | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -172,21 +185,8 @@ const App: React.FC = () => {
     ),
   });
 
-  const getBooleanSetting = (key: string, fallback: boolean) => {
-    const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
-    return raw === "true";
-  };
-
-  const getNumberSetting = (key: string, fallback: number) => {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = parseInt(raw, 10);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
-
-  const [config, setConfig] = useState<Config>(() => {
-    return {
+  const initialConfig = useMemo<Config>(
+    () => ({
       modelId: localStorage.getItem("mg_model") || MODEL_ID,
       systemPrompt:
         localStorage.getItem("mg_system") ||
@@ -215,8 +215,11 @@ Règles :
       searchApiBase:
         localStorage.getItem("mg_search_api_base") ||
         "https://api.duckduckgo.com",
-    };
-  });
+    }),
+    [],
+  );
+
+  const [config, setConfig] = useState<Config>(initialConfig);
 
   const { queryMemory, recordExchange } = useSemanticMemoryHook(messages, {
     enabled: config.semanticMemoryEnabled,
