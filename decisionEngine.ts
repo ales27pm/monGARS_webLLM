@@ -9,7 +9,8 @@ export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune 
 2) Donne la réponse finale en français clair et structurée.
 3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
-export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou appeler l'outil de recherche.
+export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou
+appeler l'outil de recherche.
 
 Contraintes incontournables :
 - Inspecte minutieusement la requête et le contexte (messages récents uniquement).
@@ -18,8 +19,47 @@ Contraintes incontournables :
 - Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
 - Si tu choisis "respond", produis immédiatement le champ "response" avec la réponse finale en français qui suit STRICTEMENT les garde-fous :
   ${ANSWER_GUARDRAILS}
+- Capacité : l'outil de recherche fournit Internet, ne prétends JAMAIS en être privé sauf erreur réseau réelle.
+- Code : si la demande concerne du code, fournis un extrait complet et exécutable avec les commandes d'installation et d'exécution.
+- Sources : ne fabrique jamais de références ou de liens. Cite uniquement des ouvrages ou URLs réelles ou précise qu'aucune source fiable n'est disponible.
 - Réponds UNIQUEMENT en JSON compact : {"action":"search|respond","query":"...","plan":"...","rationale":"...","response":"..."}.
 - Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
+
+const DEFAULT_PLAN_STEPS = [
+  "Analyser précisément la demande et le contexte récent.",
+  "Décider si une recherche web est nécessaire ou si une réponse directe suffit.",
+  "Valider les faits et structurer la réponse finale en français clair.",
+];
+
+const sanitizePlanEntry = (entry: string, idx: number) => {
+  const stripped = entry.replace(/^[-*\d.)\s]+/, "").trim();
+  return `${idx + 1}) ${stripped || DEFAULT_PLAN_STEPS[idx] || "Étape"}`;
+};
+
+const normalizePlan = (plan?: string) => {
+  const candidate = plan?.trim();
+  if (!candidate) {
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+  }
+
+  const normalizedSeparators = candidate
+    .replace(/\r\n/g, "\n")
+    .replace(/\s*\d+\)\s*/g, (match) => `\n${match.trim()} `);
+
+  const steps = normalizedSeparators
+    .split(/\n|;|\|/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map(sanitizePlanEntry)
+    .slice(0, 6);
+
+  while (steps.length < 3) {
+    const fallbackIndex = steps.length;
+    steps.push(`${fallbackIndex + 1}) ${DEFAULT_PLAN_STEPS[fallbackIndex]}`);
+  }
+
+  return steps.slice(0, 6).join("\n");
+};
 
 const decisionSchema = z.object({
   action: z.enum(["search", "respond"]).catch("respond"),
@@ -81,7 +121,25 @@ export const normalizeDecision = (raw: string) => {
   const decision = decisionSchema.safeParse(parsed);
 
   if (decision.success) {
-    return decision.data;
+    const normalizedPlan = normalizePlan(decision.data.plan);
+    const normalizedQuery = decision.data.query?.trim();
+    const normalizedResponse = decision.data.response?.trim();
+    const normalizedRationale = decision.data.rationale?.trim();
+
+    const wantsSearch = decision.data.action === "search" && !!normalizedQuery;
+    const action: "search" | "respond" = wantsSearch ? "search" : "respond";
+
+    return {
+      action,
+      query: action === "search" ? normalizedQuery : undefined,
+      plan: normalizedPlan,
+      rationale:
+        normalizedRationale ||
+        (action === "search"
+          ? "Recherche requise pour données fraîches."
+          : "Réponse directe appropriée."),
+      response: action === "respond" ? normalizedResponse : undefined,
+    } satisfies z.infer<typeof decisionSchema>;
   }
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
@@ -93,7 +151,7 @@ export const normalizeDecision = (raw: string) => {
   return {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
-    plan: "Analyser, traiter, valider.",
+    plan: normalizePlan(),
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies z.infer<typeof decisionSchema>;
@@ -156,6 +214,7 @@ export async function decideAction(
     signal,
   });
 
-  const rawDecision = decisionCompletion.choices[0]?.message?.content?.trim() ?? "";
+  const rawDecision =
+    decisionCompletion.choices[0]?.message?.content?.trim() ?? "";
   return normalizeDecision(rawDecision);
 }
