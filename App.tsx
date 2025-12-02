@@ -18,7 +18,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
-import { EmbeddingMemory } from "./memory";
+import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
   Config,
@@ -71,10 +71,11 @@ const App: React.FC = () => {
     memory: "-",
     contextTokens: 0,
   });
-  const [semanticMemory] = useState(() => new EmbeddingMemory());
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+
+  const { buildMemoryContext, recordExchange } = useSemanticMemory(messages);
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -142,19 +143,6 @@ Règles :
     document.documentElement.classList.toggle("dark", config.theme === "dark");
   }, [config.theme]);
 
-  const buildMemoryContext = useCallback(
-    async (query: string) => {
-      try {
-        const results = await semanticMemory.search(query, 4);
-        return semanticMemory.formatSummaries(results);
-      } catch (error) {
-        console.warn("Semantic memory search failed", error);
-        return "";
-      }
-    },
-    [semanticMemory],
-  );
-
   useEffect(() => {
     try {
       const stored = localStorage.getItem("mg_conversation_default");
@@ -181,11 +169,6 @@ Règles :
           }
 
           setMessages(sanitized);
-          semanticMemory
-            .resetWithMessages(sanitized)
-            .catch((err) =>
-              console.warn("Impossible de recharger la mémoire sémantique", err),
-            );
         } else {
           localStorage.removeItem("mg_conversation_default");
           setMessages([]);
@@ -199,13 +182,7 @@ Règles :
     } catch (e) {
       addToast("Erreur", "Impossible de charger la conversation.", "error");
     }
-  }, [addToast, semanticMemory]);
-
-  useEffect(() => {
-    semanticMemory.warmup().catch((err) =>
-      console.warn("Semantic memory warmup failed", err),
-    );
-  }, [semanticMemory]);
+  }, [addToast]);
 
   const saveConversation = (currentMessages: Message[]) => {
     try {
@@ -635,15 +612,10 @@ Règles :
         saveConversation(updatedMessages);
       }
 
-      try {
-        await semanticMemory.addMessage(userMessage);
-        await semanticMemory.addMessage({
-          ...aiMessagePlaceholder,
-          content: finalAiResponse,
-        });
-      } catch (error) {
-        console.warn("Impossible d'enregistrer la mémoire sémantique", error);
-      }
+      await recordExchange(userMessage, {
+        ...aiMessagePlaceholder,
+        content: finalAiResponse,
+      });
     } catch (err: any) {
       console.error("Chat / tool error:", err);
       addToast(

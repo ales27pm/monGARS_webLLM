@@ -27,6 +27,8 @@ type WorkerResponse =
 export class EmbeddingMemory {
   private readonly worker: Worker;
   private readonly entries: MemoryEntry[] = [];
+  private readonly cache = new Map<string, Float32Array>();
+  private readonly maxCacheEntries = 512;
   private readonly maxEntries: number;
   private readonly pendingRequests = new Map<
     string,
@@ -72,27 +74,30 @@ export class EmbeddingMemory {
 
   async resetWithMessages(messages: Message[]) {
     this.entries.length = 0;
-    for (const msg of messages) {
-      await this.addMessage(msg);
+
+    const MAX_MESSAGES_TO_EMBED = 200;
+    const CONCURRENCY = 8;
+    const recentMessages =
+      messages.length > MAX_MESSAGES_TO_EMBED
+        ? messages.slice(-MAX_MESSAGES_TO_EMBED)
+        : messages;
+
+    for (let i = 0; i < recentMessages.length; i += CONCURRENCY) {
+      const batch = recentMessages.slice(i, i + CONCURRENCY);
+      const entries = await Promise.all(batch.map((msg) => this.buildEntry(msg)));
+      entries.forEach((entry) => {
+        if (entry) {
+          this.pushEntry(entry);
+        }
+      });
     }
   }
 
   async addMessage(message: Message) {
-    const content = (message.content || "").trim();
-    if (!content) return;
+    const entry = await this.buildEntry(message);
+    if (!entry) return;
 
-    const embedding = await this.embed(content);
-    this.entries.push({
-      id: message.id,
-      role: message.role,
-      content: this.truncate(content),
-      timestamp: message.timestamp,
-      embedding,
-    });
-
-    if (this.entries.length > this.maxEntries) {
-      this.entries.splice(0, this.entries.length - this.maxEntries);
-    }
+    this.pushEntry(entry);
   }
 
   async search(query: string, limit = 4): Promise<ScoredMemoryEntry[]> {
@@ -134,6 +139,9 @@ export class EmbeddingMemory {
   }
 
   private async embed(text: string): Promise<Float32Array> {
+    const cached = this.getCachedEmbedding(text);
+    if (cached) return cached;
+
     const response = await this.sendToWorker({
       type: "embed",
       requestId: this.requestId(),
@@ -144,6 +152,7 @@ export class EmbeddingMemory {
       return new Float32Array();
     }
 
+    this.setCachedEmbedding(text, response.vector);
     return response.vector;
   }
 
@@ -164,5 +173,56 @@ export class EmbeddingMemory {
   private truncate(content: string, limit = 320) {
     if (content.length <= limit) return content;
     return `${content.slice(0, limit)}…`;
+  }
+
+  private async buildEntry(message: Message): Promise<MemoryEntry | null> {
+    const content = (message.content || "").trim();
+    if (!content) return null;
+
+    const embedding = await this.embed(content);
+    if (embedding.length === 0) return null;
+
+    return {
+      id: message.id,
+      role: message.role,
+      content: this.truncate(content),
+      timestamp: message.timestamp,
+      embedding,
+    };
+  }
+
+  private pushEntry(entry: MemoryEntry) {
+    this.entries.push(entry);
+
+    if (this.entries.length > this.maxEntries) {
+      this.entries.splice(0, this.entries.length - this.maxEntries);
+    }
+  }
+
+  private getCachedEmbedding(text: string): Float32Array | null {
+    const key = text.trim();
+    if (!key) return null;
+
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+
+    // Refresh key for LRU semantics.
+    this.cache.delete(key);
+    this.cache.set(key, cached);
+    return cached;
+  }
+
+  private setCachedEmbedding(text: string, vector: Float32Array) {
+    const key = text.trim();
+    if (!key || vector.length === 0) return;
+
+    this.cache.set(key, vector);
+
+    if (this.cache.size > this.maxCacheEntries) {
+      const firstKey = this.cache.keys().next().value as string | undefined;
+      if (firstKey !== undefined) {
+        this.cache.delete(firstKey);
+      }
+    }
   }
 }

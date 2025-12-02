@@ -28,6 +28,7 @@ type WorkerResponse =
   | { type: "search_result"; requestId: string; results: { index: number; score: number }[] };
 
 const cache = new Map<string, Float32Array>();
+const maxCacheEntries = 512;
 let embedderPromise: Promise<EmbeddingPipeline> | null = null;
 
 function configureEnv() {
@@ -55,14 +56,24 @@ async function embed(text: string): Promise<Float32Array> {
   const trimmed = text.trim();
   if (!trimmed) return new Float32Array();
 
-  if (cache.has(trimmed)) {
-    return cache.get(trimmed)!;
+  const cached = cache.get(trimmed);
+  if (cached) {
+    cache.delete(trimmed);
+    cache.set(trimmed, cached);
+    return cached;
   }
 
   const embedder = await getEmbedder();
   const output = await embedder(trimmed, { pooling: "mean", normalize: true });
   const vector = output.data instanceof Float32Array ? output.data : Float32Array.from(output.data);
   cache.set(trimmed, vector);
+
+  if (cache.size > maxCacheEntries) {
+    const firstKey = cache.keys().next().value as string | undefined;
+    if (firstKey !== undefined) {
+      cache.delete(firstKey);
+    }
+  }
   return vector;
 }
 

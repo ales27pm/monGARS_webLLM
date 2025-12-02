@@ -131,7 +131,7 @@ export const normalizeDecision = (raw: string) => {
     const hasQuery = !!normalizedQuery;
     const hasResponse = !!normalizedResponse;
 
-    let action = decision.data.action;
+    let { action } = decision.data;
 
     // If the model intends to search but provides no query, switch to respond.
     // If it intends to respond but provides no response, switch to search.
