@@ -1,16 +1,9 @@
 import { z } from "zod";
+import { buildContextualHints } from "./contextProfiling";
 import type { Config, Message, MLCEngine } from "./types";
 
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 export const MAX_CONTEXT_MESSAGES = 12;
-
-type RequestProfile = {
-  intent: "information" | "code" | "analysis";
-  requiresFreshData: boolean;
-  ambiguitySignals: string[];
-  contextualAnchors: string[];
-  followUpDetected: boolean;
-};
 
 export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
 1) Résume ta stratégie en une phrase (obligatoire).
@@ -40,172 +33,8 @@ const DEFAULT_PLAN_STEPS = [
   "Valider les faits et structurer la réponse finale en français clair.",
 ];
 
-const CONTEXT_STOP_WORDS = new Set(
-  [
-    "le",
-    "la",
-    "les",
-    "un",
-    "une",
-    "des",
-    "du",
-    "de",
-    "et",
-    "ou",
-    "en",
-    "pour",
-    "dans",
-    "avec",
-    "sur",
-    "par",
-    "que",
-    "qui",
-    "quoi",
-    "quand",
-    "comment",
-    "est",
-    "sont",
-    "été",
-    "être",
-    "au",
-    "aux",
-    "ce",
-    "cet",
-    "cette",
-    "ces",
-    "ton",
-    "son",
-    "mon",
-    "ma",
-    "mes",
-    "tes",
-    "ses",
-    "leurs",
-    "leur",
-  ].map((entry) => entry.toLowerCase()),
-);
-
-const INTENT_PATTERNS: Array<{
-  intent: RequestProfile["intent"];
-  regex: RegExp;
-}> = [
-  {
-    intent: "code",
-    regex: /(code|exemple|snippet|impl[eé]mentation|fonction)/i,
-  },
-  {
-    intent: "analysis",
-    regex: /(analy[st]e|comparaison|diagnostic|synth[eè]se)/i,
-  },
-];
-
-const FRESHNESS_PATTERNS = [
-  /\baujourd'hui|today|maintenant|actuel(le)?|en\s+direct/i,
-  /\bdernier(e)?s?\s+(chiffres|statistiques|mises?\s+à\s+jour)/i,
-  /\b202[3-9]|202\d\b/, // explicit recent year hints
-];
-
-const FOLLOW_UP_PATTERNS = [/comme (pr[eé]c[eé]dent|avant)/i, /encore|suite/i];
-
 const stripListPrefix = (entry: string) =>
   entry.replace(/^[-*\d.)\s]+/, "").trim();
-
-const extractKeywords = (text: string, maxKeywords = 6) => {
-  const tokens =
-    text
-      ?.normalize("NFKD")
-      .toLowerCase()
-      .match(/\p{L}{4,}/gu) || [];
-
-  const freq = new Map<string, number>();
-  for (const token of tokens) {
-    if (CONTEXT_STOP_WORDS.has(token)) continue;
-    freq.set(token, (freq.get(token) || 0) + 1);
-  }
-
-  return Array.from(freq.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, maxKeywords)
-    .map(([word]) => word);
-};
-
-const buildRequestProfile = (
-  inputText: string,
-  recentHistory: Message[],
-): RequestProfile => {
-  const combined = [
-    inputText,
-    ...recentHistory.map((m) => m.content || ""),
-  ].join("\n");
-  const requiresFreshData = FRESHNESS_PATTERNS.some((regex) =>
-    regex.test(combined),
-  );
-  const followUpDetected = FOLLOW_UP_PATTERNS.some((regex) =>
-    regex.test(inputText),
-  );
-
-  const intentMatch = INTENT_PATTERNS.find((pattern) =>
-    pattern.regex.test(combined),
-  );
-  const intent = intentMatch?.intent || "information";
-
-  const ambiguitySignals = [] as string[];
-  if (/ça|cela|c[e'`]est/i.test(inputText) && recentHistory.length > 0) {
-    ambiguitySignals.push('Référence pronominale détectée ("ça", "cela").');
-  }
-  if (followUpDetected) {
-    ambiguitySignals.push("Demande de suivi implicite, vérifier l'antécédent.");
-  }
-
-  const contextualAnchors = extractKeywords(
-    [
-      inputText,
-      ...recentHistory
-        .slice(-4)
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => m.content || ""),
-    ].join(" "),
-  );
-
-  return {
-    intent,
-    requiresFreshData,
-    ambiguitySignals,
-    contextualAnchors,
-    followUpDetected,
-  };
-};
-
-const formatContextualHints = (profile: RequestProfile) => {
-  const intentLabel =
-    profile.intent === "code"
-      ? "code / exemple exécutable"
-      : profile.intent === "analysis"
-        ? "analyse ou comparaison"
-        : "information";
-
-  const freshnessLabel = profile.requiresFreshData
-    ? "Oui (signaux de fraîcheur détectés)"
-    : "Non (connaissances stables suffisantes)";
-
-  const followUpLabel = profile.followUpDetected
-    ? "Oui (penser à rappeler le contexte précédent)."
-    : "Non";
-
-  const anchors = profile.contextualAnchors.join(", ") || "non détectés";
-  const ambiguities =
-    profile.ambiguitySignals.length > 0
-      ? profile.ambiguitySignals.join(" | ")
-      : "Aucune ambiguïté explicite détectée.";
-
-  return (
-    `- Intent principal: ${intentLabel}\n` +
-    `- Besoin de données fraîches: ${freshnessLabel}\n` +
-    `- Continuité / suivi: ${followUpLabel}\n` +
-    `- Ambiguïtés à lever: ${ambiguities}\n` +
-    `- Ancrages contextuels: ${anchors}`
-  );
-};
 
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
@@ -312,10 +141,30 @@ const countPlanSteps = (plan: string) =>
     .map((step) => step.trim())
     .filter(Boolean).length;
 
-export const normalizeDecision = (raw: string): DecisionResult => {
+type NormalizationMeta = {
+  raw: string;
+  source: "validated" | "fallback";
+  parsingIssues?: z.ZodIssue[];
+  providedPlan?: string;
+  providedStepCount?: number;
+  planReformatted?: boolean;
+  hadPlan: boolean;
+  hadRationale: boolean;
+  actionBeforeSwitch?: "search" | "respond";
+  actionAfterSwitch: "search" | "respond";
+  finalAction: "search" | "respond";
+  actionFlip?: "searchToRespond" | "respondToSearch";
+  hasQuery: boolean;
+  hasResponse: boolean;
+  fallbackQueryMissing?: boolean;
+  fallbackResponseMissing?: boolean;
+};
+
+const normalizeDecisionCore = (
+  raw: string,
+): { result: Omit<DecisionResult, "warnings">; meta: NormalizationMeta } => {
   const parsed = stripJson(raw) || {};
   const decision = decisionSchema.safeParse(parsed);
-  const warnings: string[] = [];
 
   if (decision.success) {
     const normalizedQuery = decision.data.query?.trim();
@@ -324,88 +173,56 @@ export const normalizeDecision = (raw: string): DecisionResult => {
     const providedPlan = decision.data.plan?.trim() || "";
     const providedRationale = decision.data.rationale?.trim();
 
-    if (!decision.data.plan) {
-      warnings.push(
-        "Plan complété par défaut (absent dans la réponse du modèle).",
-      );
-    } else {
-      const providedStepCount = countPlanSteps(providedPlan);
-      if (providedStepCount < 3) {
-        warnings.push(
-          `Plan Tree-of-Thought insuffisant (${providedStepCount}/3 étapes), complété automatiquement.`,
-        );
-      }
-      if (providedPlan !== normalizedPlan) {
-        warnings.push(
-          "Plan reformatté pour respecter les garde-fous ToT (3-6 étapes).",
-        );
-      }
-    }
-
-    if (!providedRationale) {
-      warnings.push("Justification absente, complétée par défaut.");
-    }
-
-    const normalized = {
-      action: decision.data.action,
-      plan: normalizedPlan,
-      rationale: decision.data.rationale?.trim(),
-      query: normalizedQuery,
-      response: normalizedResponse,
-    };
-    const hasQuery = !!normalizedQuery;
-    const hasResponse = !!normalizedResponse;
-
-    let { action } = decision.data;
+    let action = decision.data.action;
+    let actionFlip: NormalizationMeta["actionFlip"];
 
     // If the model intends to search but provides no query, switch to respond.
     // If it intends to respond but provides no response, switch to search.
-    if (action === "search" && !hasQuery) {
+    if (action === "search" && !normalizedQuery) {
       action = "respond";
-      warnings.push(
-        "Action inversée en respond faute de requête de recherche.",
-      );
-    } else if (action === "respond" && !hasResponse) {
+      actionFlip = "searchToRespond";
+    } else if (action === "respond" && !normalizedResponse) {
       action = "search";
-      warnings.push("Action inversée en search faute de réponse finale.");
+      actionFlip = "respondToSearch";
     }
 
-    const wantsSearch = action === "search" && hasQuery;
+    const wantsSearch = action === "search" && !!normalizedQuery;
     const finalAction: "search" | "respond" = wantsSearch
       ? "search"
       : "respond";
 
-    if (finalAction === "respond" && hasQuery) {
-      warnings.push(
-        "Requête de recherche fournie mais action respond retenue.",
-      );
-    }
-    if (finalAction === "search" && hasResponse) {
-      warnings.push(
-        "Réponse finale fournie mais ignorée car l'action est search.",
-      );
-    }
-
-    return {
+    const result: Omit<DecisionResult, "warnings"> = {
       action: finalAction,
-      query: finalAction === "search" ? normalized.query : undefined,
-      plan: normalized.plan,
+      query: finalAction === "search" ? normalizedQuery : undefined,
+      plan: normalizedPlan,
       rationale:
-        normalized.rationale ||
+        providedRationale ||
         (finalAction === "search"
           ? "Recherche requise pour données fraîches."
           : "Réponse directe appropriée."),
-      response: finalAction === "respond" ? normalized.response : undefined,
-      warnings,
-    } satisfies DecisionResult;
-  }
+      response: finalAction === "respond" ? normalizedResponse : undefined,
+    } satisfies Omit<DecisionResult, "warnings">;
 
-  warnings.push("Échec de parsing JSON, utilisation d'un fallback tolérant.");
+    const meta: NormalizationMeta = {
+      raw,
+      source: "validated",
+      parsingIssues: [],
+      providedPlan,
+      providedStepCount: providedPlan
+        ? countPlanSteps(providedPlan)
+        : undefined,
+      planReformatted: !!providedPlan && providedPlan !== normalizedPlan,
+      hadPlan: !!providedPlan,
+      hadRationale: !!providedRationale,
+      actionBeforeSwitch: decision.data.action,
+      actionAfterSwitch: action,
+      finalAction,
+      actionFlip,
+      hasQuery: !!normalizedQuery,
+      hasResponse: !!normalizedResponse,
+    };
 
-  if (!decision.success && decision.error.issues.length > 0) {
-    warnings.push(
-      `Détails de validation : ${formatZodIssues(decision.error.issues)}`,
-    );
+    return { result, meta };
   }
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
@@ -414,25 +231,103 @@ export const normalizeDecision = (raw: string): DecisionResult => {
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
   );
 
-  if (!fallbackQueryMatch && fallbackAction === "search") {
-    warnings.push(
-      "Aucune requête trouvée dans le fallback, action search potentiellement invalide.",
-    );
-  }
-  if (!fallbackResponseMatch && fallbackAction === "respond") {
-    warnings.push(
-      "Aucune réponse trouvée dans le fallback, action respond potentiellement invalide.",
-    );
-  }
-
-  return {
+  const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
     plan: normalizePlan(),
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
-    warnings,
-  } satisfies DecisionResult;
+  } satisfies Omit<DecisionResult, "warnings">;
+
+  const meta: NormalizationMeta = {
+    raw,
+    source: "fallback",
+    parsingIssues: decision.error.issues,
+    hadPlan: false,
+    hadRationale: false,
+    actionAfterSwitch: fallbackAction as "search" | "respond",
+    finalAction: fallbackAction as "search" | "respond",
+    hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
+    hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
+    fallbackQueryMissing:
+      fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
+    fallbackResponseMissing:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+  };
+
+  return { result, meta };
+};
+
+const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
+  if (meta.source === "fallback") {
+    const warnings = [
+      "Échec de parsing JSON, utilisation d'un fallback tolérant.",
+    ];
+
+    if (meta.parsingIssues && meta.parsingIssues.length > 0) {
+      warnings.push(
+        `Détails de validation : ${formatZodIssues(meta.parsingIssues)}`,
+      );
+    }
+    if (meta.fallbackQueryMissing) {
+      warnings.push(
+        "Aucune requête trouvée dans le fallback, action search potentiellement invalide.",
+      );
+    }
+    if (meta.fallbackResponseMissing) {
+      warnings.push(
+        "Aucune réponse trouvée dans le fallback, action respond potentiellement invalide.",
+      );
+    }
+
+    return warnings;
+  }
+
+  const warnings: string[] = [];
+
+  if (!meta.hadPlan) {
+    warnings.push(
+      "Plan complété par défaut (absent dans la réponse du modèle).",
+    );
+  } else {
+    if ((meta.providedStepCount ?? 0) < 3) {
+      warnings.push(
+        `Plan Tree-of-Thought insuffisant (${meta.providedStepCount}/3 étapes), complété automatiquement.`,
+      );
+    }
+    if (meta.planReformatted) {
+      warnings.push(
+        "Plan reformatté pour respecter les garde-fous ToT (3-6 étapes).",
+      );
+    }
+  }
+
+  if (!meta.hadRationale) {
+    warnings.push("Justification absente, complétée par défaut.");
+  }
+
+  if (meta.actionFlip === "searchToRespond") {
+    warnings.push("Action inversée en respond faute de requête de recherche.");
+  } else if (meta.actionFlip === "respondToSearch") {
+    warnings.push("Action inversée en search faute de réponse finale.");
+  }
+
+  if (meta.finalAction === "respond" && meta.hasQuery) {
+    warnings.push("Requête de recherche fournie mais action respond retenue.");
+  }
+  if (meta.finalAction === "search" && meta.hasResponse) {
+    warnings.push(
+      "Réponse finale fournie mais ignorée car l'action est search.",
+    );
+  }
+
+  return warnings;
+};
+
+export const normalizeDecision = (raw: string): DecisionResult => {
+  const { result, meta } = normalizeDecisionCore(raw);
+  const warnings = buildDecisionWarnings(meta);
+  return { ...result, warnings } satisfies DecisionResult;
 };
 
 export const buildDecisionMessages = (
@@ -440,8 +335,7 @@ export const buildDecisionMessages = (
   recentHistory: Message[],
   toolSpecPrompt: string,
 ) => {
-  const profile = buildRequestProfile(inputText, recentHistory);
-  const contextualHints = formatContextualHints(profile);
+  const contextualHints = buildContextualHints(inputText, recentHistory);
 
   return [
     { role: "system", content: DECISION_SYSTEM_PROMPT },
