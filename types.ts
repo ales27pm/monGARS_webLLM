@@ -1,45 +1,48 @@
-export enum Role {
-    USER = 'user',
-    MODEL = 'model',
-    SYSTEM = 'system'
-}
+
+export type Role = 'user' | 'assistant' | 'tool';
 
 export interface Message {
-    id: string;
-    role: Role;
-    text: string;
-    timestamp: Date;
-    isError?: boolean;
+  id: string;
+  role: Role;
+  content: string | null;
+  timestamp: number;
+  tokens?: number;
 }
 
-export interface ModelConfig {
-    id: string;
-    name: string;
-    size: string;
-    description: string;
-    params: string;
-    quantization: string;
-    recommended?: boolean;
-    badge?: string;
-    modelUrl: string;
-    modelLibUrl: string;
-}
-
-export interface ToastNotification {
-    id: string;
-    message: string;
-    type: 'info' | 'success' | 'warning' | 'error';
-    duration: number;
-}
+export type EngineStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface InitProgressReport {
-    text: string;
-    progress: number;
+  progress: number;
+  text: string;
 }
 
-// Augment window to include webllm
-declare global {
-    interface Window {
-        webllm: any;
-    }
+export interface Config {
+  modelId: string; // Added modelId to Config interface
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+  theme: 'light' | 'dark';
+}
+
+export interface ToastInfo {
+  id: number;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+// Simplified types for MLC WebLLM
+export interface MLCEngine {
+  chat: {
+    completions: {
+      create: (options: {
+        messages: { role: string; content: string | null }[];
+        temperature: number;
+        max_tokens: number;
+        stream: boolean;
+        signal?: AbortSignal;
+      }) => Promise<any>; // Return type is complex, using any for simplicity
+    };
+  };
+  runtimeStatsText: () => Promise<string>;
 }

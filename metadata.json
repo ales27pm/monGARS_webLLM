@@ -1,5 +1,5 @@
 {
-  "name": "Mon Gars",
-  "description": "A privacy-first, offline AI assistant running completely in your browser using WebGPU.",
+  "name": "Mon Gars - Local AI Assistant",
+  "description": "A private, fast, and local AI assistant that runs entirely on your device using WebGPU. No data ever leaves your computer.",
   "requestFramePermissions": []
 }

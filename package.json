@@ -1,5 +1,5 @@
 {
-  "name": "mon-gars",
+  "name": "mon-gars---local-ai-assistant",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "react-dom": "^19.2.0",
-    "react": "^19.2.0"
+    "react": "^19.2.0",
+    "@mlc-ai/web-llm": "^0.2.80"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -1,103 +1,97 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mon Gars – Assistant IA Local</title>
-  <meta name="description" content="Assistant IA fonctionnant entièrement localement dans votre navigateur avec WebGPU">
-  <meta name="theme-color" content="#4f46e5">
-  <link rel="stylesheet" href="./mon-gars.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body>
-  <div id="root">
-    <header>
-      <div class="header-content">
-        <div class="header-title">
-          <i class="fas fa-robot"></i>
-          Mon Gars · IA Locale
-        </div>
-        <div class="model-info">
-          <span>Modèle : Llama 3.2 3B Instruct (MLC)</span>
-          <span class="model-tag">3B · q4f16_1</span>
-        </div>
-      </div>
-      <div class="action-buttons">
-        <button id="theme-btn" class="theme-btn" title="Changer le thème">
-          <i class="fas fa-moon"></i>
-        </button>
-        <button id="load-btn" class="load-btn">
-          <i class="fas fa-download"></i>
-          Charger le modèle
-        </button>
-        <button id="reset-btn" class="reset-btn">
-          <i class="fas fa-redo"></i>
-          Réinitialiser
-        </button>
-      </div>
-    </header>
-    
-    <div class="status-bar">
-      <div class="status-text">
-        <strong>Statut :</strong> 
-        <span id="status-text">En attente de chargement</span>
-      </div>
-      <div class="progress-container">
-        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
-      </div>
-    </div>
-    
-    <main id="messages-container">
-      <div class="welcome-card">
-        <div class="welcome-icon">
-          <i class="fas fa-microchip"></i>
-        </div>
-        <strong>Mon Gars</strong> – Ton assistant IA local<br><br>
-        Fonctionne entièrement dans ton navigateur grâce à <strong>WebGPU</strong>.
-        Aucune donnée ne quitte ton appareil !<br><br>
-        Clique sur <strong>« Charger le modèle »</strong> pour commencer.
-      </div>
-    </main>
-    
-    <footer>
-      <div id="error-container" style="display: none;" class="error-banner">
-        <i class="fas fa-exclamation-triangle"></i>
-        <span id="error-text">Une erreur est survenue</span>
-      </div>
-      
-      <div class="settings-container">
-        <div class="setting-group">
-          <label>
-            Température
-            <span id="temp-value">0.70</span>
-          </label>
-          <input type="range" id="temp-slider" min="0" max="100" value="70" step="1">
-        </div>
-        
-        <div class="setting-group">
-          <label>
-            Tokens maximum
-            <span id="tokens-value">512</span>
-          </label>
-          <input type="number" id="tokens-input" min="64" max="2048" value="512" step="64">
-        </div>
-        
-        <button id="clear-btn" class="clear-btn">
-          <i class="fas fa-trash"></i>
-          Effacer la conversation
-        </button>
-      </div>
-      
-      <div class="chat-input-container">
-        <textarea id="chat-input" placeholder="Charge le modèle avant de discuter..." disabled></textarea>
-        <button id="send-btn" class="send-btn" disabled>
-          <i class="fas fa-paper-plane"></i>
-          Envoyer
-        </button>
-      </div>
-    </footer>
-  </div>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.7);
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.9);
+    }
+    .hljs {
+        background: #2d2d2d !important;
+        color: #f8f8f2 !important;
+    }
+    .dark .bubble code:not(pre > code) {
+      background-color: #334155;
+      color: #cbd5e1;
+    }
+    .bubble code:not(pre > code) {
+      background-color: #e2e8f0;
+      color: #334155;
+    }
+    /* Styles for sources */
+    .bubble hr {
+        border-color: rgba(128, 128, 128, 0.2);
+        margin-top: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    .bubble ul li a {
+        word-break: break-all;
+    }
+    @keyframes toast-in {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .animate-toast-in {
+      animation: toast-in 0.3s ease-out forwards;
+    }
+    @keyframes modal-slide {
+      from { transform: translateY(20px); opacity: 0.8; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-modal-slide {
+      animation: modal-slide 0.2s ease-out forwards;
+    }
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.5s ease-in-out forwards;
+    }
+  </style>
 
-  <script src="./mon-gars.js" type="module" defer></script>
+  <!-- Import map provided by AI Studio for React 19 -->
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@mlc-ai/web-llm": "https://esm.run/@mlc-ai/web-llm@0.2.80"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+  <div id="root"></div>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script type="module" src="/index.tsx"></script>
 </body>
 </html>
