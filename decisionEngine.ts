@@ -8,8 +8,11 @@ export const MAX_CONTEXT_MESSAGES = 12;
 
 export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
 1) Résume ta stratégie en une phrase (obligatoire).
-2) Donne la réponse finale en français clair et structurée.
-3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
+2) Vérifie la sécurité/intention : sujets grand public (ex. chiens de traîneau) => répondre normalement; refuse uniquement si danger avéré.
+3) Explique ta capacité : précise si tu réponds hors ligne ou avec recherche web (ou pourquoi elle n'est pas utilisée).
+4) Donne la réponse finale en français clair et structurée (3-6 puces ou paragraphes courts).
+5) Ajoute si besoin une question de clarification UTILE après avoir déjà donné des infos utiles.
+6) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
 export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou
 appeler l'outil de recherche.
@@ -29,9 +32,9 @@ Contraintes incontournables :
 - Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
 
 const DEFAULT_PLAN_STEPS = [
-  "Analyser précisément la demande et le contexte récent.",
-  "Décider si une recherche web est nécessaire ou si une réponse directe suffit.",
-  "Valider les faits et structurer la réponse finale en français clair.",
+  "Vérifier sécurité/intention : sujets grand public => répondre, refuser seulement si risque réel.",
+  "Décider recherche vs réponse directe en fonction du besoin de données fraîches ou de la confiance.",
+  "Structurer la réponse en français clair, mentionner la capacité (hors ligne / recherche) et proposer approfondissements utiles.",
 ];
 
 /**
