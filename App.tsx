@@ -245,16 +245,22 @@ Règles :
     return true;
   }, [addToast]);
 
-  const loadEngine = useCallback(async (): Promise<MLCEngine | null> => {
-    // Wait for WebGPU support check. If unsupported, abort loading.
-    if (isReloadingRef.current || engine || !(await checkWebGPU())) return null;
+  const loadEngine = useCallback(
+    async (forceReload = false): Promise<MLCEngine | null> => {
+      if (isReloadingRef.current) return engine;
 
-    isReloadingRef.current = true;
-    setEngineStatus("loading");
-    setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+      const existingEngine = engine;
+      if (existingEngine && !forceReload) return existingEngine;
 
-    try {
-      const selectedModel = config.modelId;
+      // Wait for WebGPU support check. If unsupported, abort loading.
+      if (!(await checkWebGPU())) return null;
+
+      isReloadingRef.current = true;
+      setEngineStatus("loading");
+      setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+
+      try {
+        const selectedModel = config.modelId;
 
       const webllm = await getWebLLM();
       const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
@@ -305,25 +311,27 @@ Règles :
         return [welcomeMessage];
       });
 
-      return newEngine;
-    } catch (err: any) {
-      console.error("Engine loading error:", err);
-      setEngineStatus("error");
-      setInitProgress({
-        progress: 0,
-        text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
-      });
-      addToast(
-        "Erreur de chargement",
-        err?.message ||
-          "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
-        "error",
-      );
-      return null;
-    } finally {
-      isReloadingRef.current = false;
-    }
-  }, [addToast, checkWebGPU, config.modelId, engine]);
+        return newEngine;
+      } catch (err: any) {
+        console.error("Engine loading error:", err);
+        setEngineStatus("error");
+        setInitProgress({
+          progress: 0,
+          text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
+        });
+        addToast(
+          "Erreur de chargement",
+          err?.message ||
+            "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
+          "error",
+        );
+        return null;
+      } finally {
+        isReloadingRef.current = false;
+      }
+    },
+    [addToast, checkWebGPU, config.modelId, engine],
+  );
 
   const handleEngineError = useCallback(
     async (err: any) => {
@@ -342,7 +350,7 @@ Règles :
           "warning",
         );
         try {
-          const newEngine = await loadEngine();
+          const newEngine = await loadEngine(true);
           if (newEngine) {
             return true;
           }
