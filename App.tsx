@@ -641,6 +641,8 @@ Règles :
         abortControllerRef.current?.signal,
       );
 
+      const decisionDiagnostics = decision.diagnostics;
+
       if (decision.warnings.length > 0) {
         console.warn("Avertissements décisionnels", decision.warnings);
         addToast(
@@ -667,6 +669,9 @@ Règles :
           : forcedQuery;
       let finalAiResponse = "";
 
+      let lastAnswerHistory: { role: string; content: string }[] | null =
+        null;
+
       if (searchQueryToUse) {
         const query = searchQueryToUse;
         setSearchQuery(query);
@@ -688,6 +693,8 @@ Règles :
             `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
         );
 
+        lastAnswerHistory = historyForAnswer;
+
         finalAiResponse = await streamAnswer(
           historyForAnswer,
           aiMessagePlaceholder.id,
@@ -708,7 +715,7 @@ Règles :
         if (directResponse) {
           finalAiResponse = directResponse;
         } else {
-          const history = buildAnswerHistory(
+          lastAnswerHistory = buildAnswerHistory(
             decisionPlan,
             config,
             conversationForDecision,
@@ -716,9 +723,40 @@ Règles :
           );
 
           finalAiResponse = await streamAnswer(
-            history,
+            lastAnswerHistory,
             aiMessagePlaceholder.id,
           );
+        }
+      }
+
+      if (!finalAiResponse.trim()) {
+        console.warn("Réponse finale vide, déclenchement d'une relance.", {
+          decisionWarnings: decision.warnings,
+          decisionDiagnostics,
+        });
+
+        addToast(
+          "Réponse manquante",
+          "Aucune réponse utilisable fournie, une relance a été déclenchée.",
+          "warning",
+        );
+
+        const recoveryHistory =
+          lastAnswerHistory ||
+          buildAnswerHistory(
+            decisionPlan,
+            config,
+            conversationForDecision,
+            `${memoryPrefix}${trimmedInput}`,
+          );
+
+        finalAiResponse = await streamAnswer(
+          recoveryHistory,
+          aiMessagePlaceholder.id,
+        );
+
+        if (!finalAiResponse.trim()) {
+          finalAiResponse = "Désolé, je n'ai pas pu générer de réponse. Veuillez reformuler votre question.";
         }
       }
 
