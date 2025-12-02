@@ -31,10 +31,8 @@ const DEFAULT_PLAN_STEPS = [
   "Valider les faits et structurer la réponse finale en français clair.",
 ];
 
-const sanitizePlanEntry = (entry: string, idx: number) => {
-  const stripped = entry.replace(/^[-*\d.)\s]+/, "").trim();
-  return `${idx + 1}) ${stripped || DEFAULT_PLAN_STEPS[idx] || "Étape"}`;
-};
+const stripListPrefix = (entry: string) =>
+  entry.replace(/^[-*\d.)\s]+/, "").trim();
 
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
@@ -44,21 +42,25 @@ const normalizePlan = (plan?: string) => {
 
   const normalizedSeparators = candidate
     .replace(/\r\n/g, "\n")
-    .replace(/\s*\d+\)\s*/g, (match) => `\n${match.trim()} `);
+    .replace(/^\s*\d+\)\s*/gm, (match) => `\n${match.trim()} `);
 
-  const steps = normalizedSeparators
+  const rawSteps = normalizedSeparators
     .split(/\n|;|\|/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map(sanitizePlanEntry)
-    .slice(0, 6);
+    .map((s) => stripListPrefix(s))
+    .filter(Boolean);
 
-  while (steps.length < 3) {
-    const fallbackIndex = steps.length;
-    steps.push(`${fallbackIndex + 1}) ${DEFAULT_PLAN_STEPS[fallbackIndex]}`);
+  const totalSteps = Math.max(
+    3,
+    Math.min(6, rawSteps.length || DEFAULT_PLAN_STEPS.length),
+  );
+
+  const steps: string[] = [];
+  for (let i = 0; i < totalSteps; i++) {
+    const content = rawSteps[i] || DEFAULT_PLAN_STEPS[i] || "Étape";
+    steps.push(`${i + 1}) ${content}`);
   }
 
-  return steps.slice(0, 6).join("\n");
+  return steps.join("\n");
 };
 
 const decisionSchema = z.object({
@@ -121,24 +123,27 @@ export const normalizeDecision = (raw: string) => {
   const decision = decisionSchema.safeParse(parsed);
 
   if (decision.success) {
-    const normalizedPlan = normalizePlan(decision.data.plan);
-    const normalizedQuery = decision.data.query?.trim();
-    const normalizedResponse = decision.data.response?.trim();
-    const normalizedRationale = decision.data.rationale?.trim();
+    const normalized = {
+      action: decision.data.action,
+      plan: normalizePlan(decision.data.plan),
+      query: decision.data.query?.trim() || undefined,
+      response: decision.data.response?.trim() || undefined,
+      rationale: decision.data.rationale?.trim(),
+    };
 
-    const wantsSearch = decision.data.action === "search" && !!normalizedQuery;
-    const action: "search" | "respond" = wantsSearch ? "search" : "respond";
+    const wantsSearch = normalized.action === "search" && !!normalized.query;
+    const finalAction: "search" | "respond" = wantsSearch ? "search" : "respond";
 
     return {
-      action,
-      query: action === "search" ? normalizedQuery : undefined,
-      plan: normalizedPlan,
+      action: finalAction,
+      query: finalAction === "search" ? normalized.query : undefined,
+      plan: normalized.plan,
       rationale:
-        normalizedRationale ||
-        (action === "search"
+        normalized.rationale ||
+        (finalAction === "search"
           ? "Recherche requise pour données fraîches."
           : "Réponse directe appropriée."),
-      response: action === "respond" ? normalizedResponse : undefined,
+      response: finalAction === "respond" ? normalized.response : undefined,
     } satisfies z.infer<typeof decisionSchema>;
   }
 
