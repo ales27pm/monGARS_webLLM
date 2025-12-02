@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { z } from 'zod';
 
 let webLLMModulePromise: Promise<any> | null = null;
 async function getWebLLM() {
@@ -81,6 +82,33 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
 
+  const timestampSchema = z.preprocess((value) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? Date.now() : parsed;
+    }
+
+    return Date.now();
+  }, z.number());
+
+  const messageSchema = z.object({
+    id: z.string(),
+    role: z.enum(['assistant', 'tool', 'user']).catch('user'),
+    content: z.union([z.string(), z.null()]).transform((value) =>
+      typeof value === 'string' ? value : ''
+    ),
+    timestamp: timestampSchema,
+    tokens: z.preprocess(
+      (value) =>
+        typeof value === 'number' && Number.isFinite(value) ? value : undefined,
+      z.number().optional()
+    ),
+  });
+
   const [config, setConfig] = useState<Config>(() => {
     const savedConfig = {
       modelId: localStorage.getItem('mg_model') || MODEL_ID,
@@ -123,7 +151,40 @@ Règles :
     try {
       const stored = localStorage.getItem('mg_conversation_default');
       if (stored) {
-        setMessages(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        const parsedArray = z.array(z.unknown()).safeParse(parsed);
+
+        if (parsedArray.success) {
+          const sanitized = parsedArray.data.reduce<Message[]>(
+            (acc, item) => {
+              const result = messageSchema.safeParse(item);
+              if (result.success) {
+                acc.push(result.data);
+              }
+              return acc;
+            },
+            []
+          );
+
+          if (sanitized.length === 0 && parsedArray.data.length > 0) {
+            localStorage.removeItem('mg_conversation_default');
+            addToast(
+              'Conversation réinitialisée',
+              'Les données stockées étaient invalides et ont été effacées.',
+              'warning'
+            );
+          }
+
+          setMessages(sanitized);
+        } else {
+          localStorage.removeItem('mg_conversation_default');
+          setMessages([]);
+          addToast(
+            'Conversation réinitialisée',
+            'Les données stockées étaient invalides et ont été effacées.',
+            'warning'
+          );
+        }
       }
     } catch (e) {
       addToast('Erreur', 'Impossible de charger la conversation.', 'error');

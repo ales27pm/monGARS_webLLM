@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.0",
+    "@mlc-ai/web-llm": "^0.2.80",
     "react": "^19.2.0",
-    "@mlc-ai/web-llm": "^0.2.80"
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
