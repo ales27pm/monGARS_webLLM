@@ -127,21 +127,41 @@ Règles :
         if (Array.isArray(parsed)) {
           const sanitized = parsed
             .filter((item: any) => item && typeof item.id === 'string')
-            .map((item: any) => ({
-              id: item.id,
-              role:
-                item.role === 'assistant' || item.role === 'tool'
-                  ? item.role
-                  : 'user',
-              content: typeof item.content === 'string' ? item.content : '',
-              timestamp:
-                typeof item.timestamp === 'number'
-                  ? item.timestamp
-                  : Date.now(),
-              tokens:
-                typeof item.tokens === 'number' ? item.tokens : undefined,
-            }));
+            .map((item: any) => {
+              let timestamp: number;
+
+              if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
+                timestamp = item.timestamp;
+              } else if (typeof item.timestamp === 'string') {
+                const parsedTimestamp = Date.parse(item.timestamp);
+                timestamp = Number.isNaN(parsedTimestamp) ? Date.now() : parsedTimestamp;
+              } else {
+                timestamp = Date.now();
+              }
+
+              return {
+                id: item.id,
+                role:
+                  item.role === 'assistant' || item.role === 'tool'
+                    ? item.role
+                    : 'user',
+                content: typeof item.content === 'string' ? item.content : '',
+                timestamp,
+                tokens:
+                  typeof item.tokens === 'number' && Number.isFinite(item.tokens)
+                    ? item.tokens
+                    : undefined,
+              };
+            });
           setMessages(sanitized);
+        } else {
+          localStorage.removeItem('mg_conversation_default');
+          setMessages([]);
+          addToast(
+            'Conversation réinitialisée',
+            'Les données stockées étaient invalides et ont été effacées.',
+            'warning'
+          );
         }
       }
     } catch (e) {

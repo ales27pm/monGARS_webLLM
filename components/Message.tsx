@@ -49,12 +49,12 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
         <div 
           ref={contentRef}
           className={`bubble text-sm leading-relaxed rounded-2xl p-4 shadow-sm prose prose-sm max-w-none prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-headings:my-2
-            ${isUser 
-              ? 'bg-primary-DEFAULT text-white rounded-br-lg' 
+            ${isUser
+              ? 'bg-primary-DEFAULT text-white rounded-br-lg'
               : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-lg'}`
           }
           dangerouslySetInnerHTML={{
-            __html: renderContent(message.content ?? ''),
+            __html: renderContent(message.content),
           }}
         />
         <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
