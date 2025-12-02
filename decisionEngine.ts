@@ -4,6 +4,11 @@ import type { Config, Message, MLCEngine } from "./types";
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 export const MAX_CONTEXT_MESSAGES = 12;
 
+export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
+1) Résume ta stratégie en une phrase (obligatoire).
+2) Donne la réponse finale en français clair et structurée.
+3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
+
 export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou appeler l'outil de recherche.
 
 Contraintes incontournables :
@@ -11,13 +16,10 @@ Contraintes incontournables :
 - Construis un plan Tree-of-Thought en au moins 3 étapes numérotées (diagnostic, pistes, validation).
 - Choisis strictement entre "search" (si une actualité, une donnée récente ou un doute factuel existe) ou "respond".
 - Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
-- Réponds UNIQUEMENT en JSON compact : {"action":"search|respond","query":"...","plan":"...","rationale":"..."}.
+- Si tu choisis "respond", produis immédiatement le champ "response" avec la réponse finale en français qui suit STRICTEMENT les garde-fous :
+  ${ANSWER_GUARDRAILS}
+- Réponds UNIQUEMENT en JSON compact : {"action":"search|respond","query":"...","plan":"...","rationale":"...","response":"..."}.
 - Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
-
-export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
-1) Résume ta stratégie en une phrase (obligatoire).
-2) Donne la réponse finale en français clair et structurée.
-3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
 const decisionSchema = z.object({
   action: z.enum(["search", "respond"]).catch("respond"),
@@ -29,6 +31,7 @@ const decisionSchema = z.object({
     .optional(),
   plan: z.string().trim().min(8, "plan manquant").optional(),
   rationale: z.string().trim().min(6, "justification manquante").optional(),
+  response: z.string().trim().optional(),
 });
 
 const formatConversationContext = (history: Message[]) =>
@@ -83,12 +86,16 @@ export const normalizeDecision = (raw: string) => {
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
   const fallbackQueryMatch = raw.match(/query\s*[:=]\s*"?([^"}]+)"?/i);
+  const fallbackResponseMatch = raw.match(
+    /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
+  );
 
   return {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
     plan: "Analyser, traiter, valider.",
     rationale: "Fallback décision non structurée.",
+    response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies z.infer<typeof decisionSchema>;
 };
 
@@ -106,7 +113,7 @@ export const buildDecisionMessages = (
       `Requête utilisateur:\n${inputText}\n\n` +
       `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
       `Outil disponible: ${toolSpecPrompt}\n` +
-      `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces.`,
+      `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
   },
 ];
 

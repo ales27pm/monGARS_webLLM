@@ -570,14 +570,22 @@ Règles :
           finalAiResponse += sourcesText;
         }
       } else {
-        const history = buildAnswerHistory(
-          decisionPlan,
-          config,
-          conversationForDecision,
-          inputText,
-        );
+        const directResponse = decision.response?.trim();
+        if (directResponse) {
+          finalAiResponse = directResponse;
+        } else {
+          const history = buildAnswerHistory(
+            decisionPlan,
+            config,
+            conversationForDecision,
+            inputText,
+          );
 
-        finalAiResponse = await streamAnswer(history, aiMessagePlaceholder.id);
+          finalAiResponse = await streamAnswer(
+            history,
+            aiMessagePlaceholder.id,
+          );
+        }
       }
 
       let updatedMessages: Message[] | null = null;
