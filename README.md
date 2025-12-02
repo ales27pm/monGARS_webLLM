@@ -15,6 +15,10 @@ View your app in AI Studio: https://ai.studio/apps/drive/1sOtVPriqRJkIIas2BSRJNf
 
 1. Install dependencies:
    `npm install`
+   
+   If you see an error like `Failed to resolve import "zod"`, dependencies are missing.
+   Running `npm install` will install `zod` and other required packages before starting the
+   dev server.
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
