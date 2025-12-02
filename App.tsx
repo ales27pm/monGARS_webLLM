@@ -123,7 +123,26 @@ Règles :
     try {
       const stored = localStorage.getItem('mg_conversation_default');
       if (stored) {
-        setMessages(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const sanitized = parsed
+            .filter((item: any) => item && typeof item.id === 'string')
+            .map((item: any) => ({
+              id: item.id,
+              role:
+                item.role === 'assistant' || item.role === 'tool'
+                  ? item.role
+                  : 'user',
+              content: typeof item.content === 'string' ? item.content : '',
+              timestamp:
+                typeof item.timestamp === 'number'
+                  ? item.timestamp
+                  : Date.now(),
+              tokens:
+                typeof item.tokens === 'number' ? item.tokens : undefined,
+            }));
+          setMessages(sanitized);
+        }
       }
     } catch (e) {
       addToast('Erreur', 'Impossible de charger la conversation.', 'error');

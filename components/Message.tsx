@@ -17,11 +17,13 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.role === 'user';
   const avatarText = isUser ? 'Moi' : 'MG';
 
-  const renderContent = (content: string) => {
-    if (!content && message.role === 'assistant') {
+  const renderContent = (content: string | null | undefined) => {
+    const safeContent = typeof content === 'string' ? content : '';
+
+    if (!safeContent && message.role === 'assistant') {
       return '<span class="animate-pulse">...</span>';
     }
-    const rawHtml = marked.parse(content);
+    const rawHtml = marked.parse(safeContent);
     return DOMPurify.sanitize(rawHtml);
   };
 
@@ -34,7 +36,8 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
   }, [message.content, message.role]);
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(message.content);
+    const textToCopy = typeof message.content === 'string' ? message.content : '';
+    navigator.clipboard.writeText(textToCopy);
   };
 
   return (
@@ -50,7 +53,9 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
               ? 'bg-primary-DEFAULT text-white rounded-br-lg' 
               : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-lg'}`
           }
-          dangerouslySetInnerHTML={{ __html: renderContent(message.content) }}
+          dangerouslySetInnerHTML={{
+            __html: renderContent(message.content ?? ''),
+          }}
         />
         <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
            <button onClick={copyToClipboard} title="Copier" className="text-slate-400 hover:text-primary-DEFAULT text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-700">
