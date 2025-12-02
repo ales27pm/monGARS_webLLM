@@ -18,6 +18,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
+import { EmbeddingMemory } from "./memory";
 import type {
   Message,
   Config,
@@ -70,6 +71,7 @@ const App: React.FC = () => {
     memory: "-",
     contextTokens: 0,
   });
+  const [semanticMemory] = useState(() => new EmbeddingMemory());
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
@@ -140,6 +142,19 @@ Règles :
     document.documentElement.classList.toggle("dark", config.theme === "dark");
   }, [config.theme]);
 
+  const buildMemoryContext = useCallback(
+    async (query: string) => {
+      try {
+        const results = await semanticMemory.search(query, 4);
+        return semanticMemory.formatSummaries(results);
+      } catch (error) {
+        console.warn("Semantic memory search failed", error);
+        return "";
+      }
+    },
+    [semanticMemory],
+  );
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem("mg_conversation_default");
@@ -166,6 +181,11 @@ Règles :
           }
 
           setMessages(sanitized);
+          semanticMemory
+            .resetWithMessages(sanitized)
+            .catch((err) =>
+              console.warn("Impossible de recharger la mémoire sémantique", err),
+            );
         } else {
           localStorage.removeItem("mg_conversation_default");
           setMessages([]);
@@ -179,7 +199,13 @@ Règles :
     } catch (e) {
       addToast("Erreur", "Impossible de charger la conversation.", "error");
     }
-  }, [addToast]);
+  }, [addToast, semanticMemory]);
+
+  useEffect(() => {
+    semanticMemory.warmup().catch((err) =>
+      console.warn("Semantic memory warmup failed", err),
+    );
+  }, [semanticMemory]);
 
   const saveConversation = (currentMessages: Message[]) => {
     try {
@@ -525,6 +551,10 @@ Règles :
 
     try {
       const conversationForDecision = [...messages, userMessage];
+      const memoryContext = await buildMemoryContext(inputText);
+      const memoryPrefix = memoryContext
+        ? `Mémoire sémantique pertinente :\n${memoryContext}\n\n`
+        : "";
       const decision = await decideAction(
         engine,
         inputText,
@@ -551,7 +581,7 @@ Règles :
           decisionPlan,
           config,
           conversationForDecision,
-          `${inputText}\n\n` +
+          `${memoryPrefix}${inputText}\n\n` +
             `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
             `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
         );
@@ -580,7 +610,7 @@ Règles :
             decisionPlan,
             config,
             conversationForDecision,
-            inputText,
+            `${memoryPrefix}${inputText}`,
           );
 
           finalAiResponse = await streamAnswer(
@@ -603,6 +633,16 @@ Règles :
 
       if (updatedMessages) {
         saveConversation(updatedMessages);
+      }
+
+      try {
+        await semanticMemory.addMessage(userMessage);
+        await semanticMemory.addMessage({
+          ...aiMessagePlaceholder,
+          content: finalAiResponse,
+        });
+      } catch (error) {
+        console.warn("Impossible d'enregistrer la mémoire sémantique", error);
       }
     } catch (err: any) {
       console.error("Chat / tool error:", err);

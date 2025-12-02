@@ -40,11 +40,11 @@ const normalizePlan = (plan?: string) => {
     return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
   }
 
-  const normalizedSeparators = candidate
-    .replace(/\r\n/g, "\n")
-    const steps = candidate
-      .split(/\s*(?:\n|;|\||\d+\))\s*/)
-      .map((entry) => entry.trim())
+  const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
+  const rawSteps = normalizedSeparators
+    .split(/\s*(?:\n|;|\||\d+[.)])\s*/)
+    .map((entry) => stripListPrefix(entry))
+    .filter(Boolean);
   const totalSteps = Math.max(
     3,
     Math.min(6, rawSteps.length || DEFAULT_PLAN_STEPS.length),
@@ -119,25 +119,29 @@ export const normalizeDecision = (raw: string) => {
   const decision = decisionSchema.safeParse(parsed);
 
   if (decision.success) {
+    const normalizedQuery = decision.data.query?.trim();
+    const normalizedResponse = decision.data.response?.trim();
     const normalized = {
       action: decision.data.action,
       plan: normalizePlan(decision.data.plan),
-      const hasQuery = !!normalizedQuery;
-      const hasResponse = !!normalizedResponse;
-
-      let action = decision.data.action;
-
-      // If the model intends to search but provides no query, switch to respond.
-      // If it intends to respond but provides no response, switch to search.
-      if (action === "search" && !hasQuery) {
-        action = "respond";
-      } else if (action === "respond" && !hasResponse) {
-        action = "search";
-      }
-
+      rationale: decision.data.rationale?.trim(),
+      query: normalizedQuery,
+      response: normalizedResponse,
     };
+    const hasQuery = !!normalizedQuery;
+    const hasResponse = !!normalizedResponse;
 
-    const wantsSearch = normalized.action === "search" && !!normalized.query;
+    let action = decision.data.action;
+
+    // If the model intends to search but provides no query, switch to respond.
+    // If it intends to respond but provides no response, switch to search.
+    if (action === "search" && !hasQuery) {
+      action = "respond";
+    } else if (action === "respond" && !hasResponse) {
+      action = "search";
+    }
+
+    const wantsSearch = action === "search" && hasQuery;
     const finalAction: "search" | "respond" = wantsSearch ? "search" : "respond";
 
     return {
