@@ -26,6 +26,7 @@ import type {
   InitProgressReport,
   MLCEngine,
 } from "./types";
+import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
 
 declare global {
   interface Navigator {
@@ -51,23 +52,6 @@ const searchTool = {
 
 const toolSpecPrompt = `- ${searchTool.name}: ${searchTool.description}
   params schema: ${JSON.stringify(searchTool.parameters)}`;
-
-const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-const MAX_CONTEXT_MESSAGES = 12;
-const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou appeler l'outil de recherche.
-
-Contraintes incontournables :
-- Inspecte minutieusement la requête et le contexte (messages récents uniquement).
-- Construis un plan Tree-of-Thought en au moins 3 étapes numérotées (diagnostic, pistes, validation).
-- Choisis strictement entre "search" (si une actualité, une donnée récente ou un doute factuel existe) ou "respond".
-- Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
-- Réponds UNIQUEMENT en JSON compact : {"action":"search|respond","query":"...","plan":"...","rationale":"..."}.
-- Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
-
-const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
-1) Résume ta stratégie en une phrase (obligatoire).
-2) Donne la réponse finale en français clair et structurée.
-3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
 type Source = { title: string; url: string };
 
@@ -117,25 +101,13 @@ const App: React.FC = () => {
     ),
   });
 
-  const decisionSchema = z.object({
-    action: z.enum(["search", "respond"]).catch("respond"),
-    query: z
-      .string()
-      .trim()
-      .min(3, "query trop courte")
-      .max(160, "query trop longue")
-      .optional(),
-    plan: z.string().trim().min(8, "plan manquant").optional(),
-    rationale: z.string().trim().min(6, "justification manquante").optional(),
-  });
-
   const [config, setConfig] = useState<Config>(() => {
-    const savedConfig = {
+    return {
       modelId: localStorage.getItem("mg_model") || MODEL_ID,
       systemPrompt:
         localStorage.getItem("mg_system") ||
         `Tu es "Mon Gars", un assistant IA français utile, direct et pragmatique. Tu expliques clairement, étape par étape, sans jargon inutile. 
-      
+
 Règles :
 - Tu réponds toujours en FRANÇAIS.
 - Tu gardes les réponses courtes et efficaces par défaut.
@@ -148,7 +120,6 @@ Règles :
       theme:
         (localStorage.getItem("mg_theme") as "light" | "dark" | null) || "dark",
     };
-    return savedConfig;
   });
 
   const addToast = useCallback(
@@ -391,10 +362,16 @@ Règles :
 
   const performWebSearch = async (
     query: string,
+    parentSignal?: AbortSignal | null,
   ): Promise<{ content: string; sources: Source[] }> => {
     addToast("Recherche Web", `Recherche de "${query}"...`, "info");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
+    const forwardAbort = () => controller.abort(parentSignal?.reason as any);
+
+    if (parentSignal) {
+      parentSignal.addEventListener("abort", forwardAbort);
+    }
 
     try {
       const response = await fetch(
@@ -476,63 +453,44 @@ Règles :
       };
     } finally {
       clearTimeout(timeout);
+      if (parentSignal) {
+        parentSignal.removeEventListener("abort", forwardAbort);
+      }
     }
   };
 
-  const formatConversationContext = (history: Message[]) =>
-    history
-      .slice(-MAX_CONTEXT_MESSAGES)
-      .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
-      .join("\n");
-
-  const stripJson = (raw: string) => {
-    const cleaned = raw
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      return null;
-    }
-  };
-
-  const normalizeDecision = (raw: string) => {
-    const parsed = stripJson(raw) || {};
-    const decision = decisionSchema.safeParse(parsed);
-
-    if (decision.success) {
-      return decision.data;
+  const streamAnswer = async (
+    history: { role: string; content: string }[],
+    aiPlaceholderId: string,
+  ) => {
+    if (!engine) {
+      throw new Error("Moteur non initialisé");
     }
 
-    const fallbackAction = /search/i.test(raw) ? "search" : "respond";
-    const fallbackQueryMatch = raw.match(/query\s*[:=]\s*"?([^"}]+)"?/i);
+    const chunks = await engine.chat.completions.create({
+      messages: history,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens,
+      stream: true,
+      signal: abortControllerRef.current?.signal,
+    });
 
-    return {
-      action: fallbackAction as "search" | "respond",
-      query: fallbackQueryMatch?.[1]?.trim() || undefined,
-      plan: "Analyser, traiter, valider.",
-      rationale: "Fallback décision non structurée.",
-    } satisfies z.infer<typeof decisionSchema>;
+    let aiResponseStream = "";
+    for await (const chunk of chunks) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      if (abortControllerRef.current?.signal.aborted) break;
+      aiResponseStream += content;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiPlaceholderId
+            ? { ...msg, content: aiResponseStream }
+            : msg,
+        ),
+      );
+    }
+
+    return aiResponseStream;
   };
-
-  const buildDecisionMessages = (
-    inputText: string,
-    recentHistory: Message[],
-  ) => [
-    { role: "system", content: DECISION_SYSTEM_PROMPT },
-    {
-      role: "user",
-      content:
-        `Requête utilisateur:\n${inputText}\n\n` +
-        `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(
-          recentHistory,
-        )}\n\n` +
-        `Outil disponible: ${toolSpecPrompt}\n` +
-        `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces.`,
-    },
-  ];
 
   const handleSend = async (inputText: string) => {
     if (!engine || !inputText.trim() || isGenerating) {
@@ -564,72 +522,42 @@ Règles :
     setMessages((prev) => [...prev, userMessage, aiMessagePlaceholder]);
 
     try {
-      const recentHistory = messages.slice(-MAX_CONTEXT_MESSAGES);
-      const decisionMessages = buildDecisionMessages(inputText, recentHistory);
-
-      const decisionCompletion = await engine.chat.completions.create({
-        messages: decisionMessages,
-        temperature: 0.2,
-        max_tokens: 256,
-        stream: false,
-        signal: abortControllerRef.current?.signal,
-      });
-
-      const rawDecision = decisionCompletion.choices[0].message.content.trim();
-      const decision = normalizeDecision(rawDecision);
+      const conversationForDecision = [...messages, userMessage];
+      const decision = await decideAction(
+        engine,
+        inputText,
+        conversationForDecision,
+        toolSpecPrompt,
+        abortControllerRef.current?.signal,
+      );
 
       const decisionPlan =
         decision.plan?.trim() || "Réponse directe structurée";
       let finalAiResponse = "";
 
       if (decision.action === "search" && decision.query) {
-        const query = decision.query;
+        const { query } = decision;
         setSearchQuery(query);
 
-        const searchResult = await performWebSearch(query);
+        const searchResult = await performWebSearch(
+          query,
+          abortControllerRef.current?.signal,
+        );
         setSearchQuery(null);
 
-        const historyForAnswer = [
-          {
-            role: "system",
-            content: `${config.systemPrompt}\n\n${ANSWER_GUARDRAILS}\nPlan: ${decisionPlan}`,
-          },
-          ...messages.map((m) => ({
-            role: m.role === "tool" ? "assistant" : m.role,
-            content: m.content,
-          })),
-          {
-            role: "user",
-            content:
-              `${inputText}\n\n` +
-              `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
-              `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
-          },
-        ];
+        const historyForAnswer = buildAnswerHistory(
+          decisionPlan,
+          config,
+          conversationForDecision,
+          `${inputText}\n\n` +
+            `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
+            `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
+        );
 
-        const chunks = await engine.chat.completions.create({
-          messages: historyForAnswer,
-          temperature: config.temperature,
-          max_tokens: config.maxTokens,
-          stream: true,
-          signal: abortControllerRef.current?.signal,
-        });
-
-        let aiResponseStream = "";
-        for await (const chunk of chunks) {
-          const content = chunk.choices[0]?.delta?.content || "";
-          if (abortControllerRef.current?.signal.aborted) break;
-          aiResponseStream += content;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMessagePlaceholder.id
-                ? { ...msg, content: aiResponseStream }
-                : msg,
-            ),
-          );
-        }
-
-        finalAiResponse = aiResponseStream;
+        finalAiResponse = await streamAnswer(
+          historyForAnswer,
+          aiMessagePlaceholder.id,
+        );
         if (searchResult.sources.length > 0) {
           const uniqueSources = Array.from(
             new Map(searchResult.sources.map((s) => [s.url, s])).values(),
@@ -642,52 +570,30 @@ Règles :
           finalAiResponse += sourcesText;
         }
       } else {
-        const history = [
-          {
-            role: "system",
-            content: `${config.systemPrompt}\n\n${ANSWER_GUARDRAILS}\nPlan: ${decisionPlan}`,
-          },
-          ...messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user", content: inputText },
-        ];
+        const history = buildAnswerHistory(
+          decisionPlan,
+          config,
+          conversationForDecision,
+          inputText,
+        );
 
-        const chunks = await engine.chat.completions.create({
-          messages: history,
-          temperature: config.temperature,
-          max_tokens: config.maxTokens,
-          stream: true,
-          signal: abortControllerRef.current?.signal,
-        });
-
-        let aiResponseStream = "";
-        for await (const chunk of chunks) {
-          const content = chunk.choices[0]?.delta?.content || "";
-          if (abortControllerRef.current?.signal.aborted) break;
-          aiResponseStream += content;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMessagePlaceholder.id
-                ? { ...msg, content: aiResponseStream }
-                : msg,
-            ),
-          );
-        }
-
-        finalAiResponse = aiResponseStream;
+        finalAiResponse = await streamAnswer(history, aiMessagePlaceholder.id);
       }
 
-      setMessages((prev) =>
-        prev.map((msg) =>
+      let updatedMessages: Message[] | null = null;
+      setMessages((prev) => {
+        const next = prev.map((msg) =>
           msg.id === aiMessagePlaceholder.id
             ? { ...msg, content: finalAiResponse }
             : msg,
-        ),
-      );
-      saveConversation([
-        ...messages,
-        userMessage,
-        { ...aiMessagePlaceholder, content: finalAiResponse },
-      ]);
+        );
+        updatedMessages = next;
+        return next;
+      });
+
+      if (updatedMessages) {
+        saveConversation(updatedMessages);
+      }
     } catch (err: any) {
       console.error("Chat / tool error:", err);
       addToast(
