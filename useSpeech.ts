@@ -16,6 +16,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   const { onTranscription } = options;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const {
     getAudioContext,
     sourceRef: ttsSourceRef,
@@ -26,6 +27,15 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const hasNativeRecognition =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const hasNativeTts =
+    typeof window !== "undefined" &&
+    "speechSynthesis" in window &&
+    typeof SpeechSynthesisUtterance !== "undefined";
 
   const transcribeBlob = useCallback(
     async (blob: Blob) => {
@@ -57,6 +67,65 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
   const startRecording = useCallback(async () => {
     if (isRecording || isTranscribing) {
+      return;
+    }
+
+    const canRecordAudio =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia;
+
+    // Prefer native speech recognition when available (Safari/Chrome mobile),
+    // as the transformer ASR model is heavier and can fail on low-memory devices.
+    if (hasNativeRecognition) {
+      try {
+        setError(null);
+        setIsRecording(true);
+        setIsTranscribing(true);
+
+        const RecognitionCtor =
+          (window as any).SpeechRecognition ||
+          (window as any).webkitSpeechRecognition;
+        const recognition = new RecognitionCtor();
+        recognition.lang = "fr-FR";
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+          const transcript = event.results?.[0]?.[0]?.transcript || "";
+          setLastTranscript(transcript);
+          onTranscription?.(transcript);
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          console.error("Native speech recognition error", event.error);
+          setIsRecording(false);
+          setIsTranscribing(false);
+          setError(
+            "La transcription vocale du navigateur a échoué. Vérifie ton micro et réessaie.",
+          );
+        };
+
+        recognition.onend = () => {
+          setIsRecording(false);
+          setIsTranscribing(false);
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        return;
+      } catch (err) {
+        console.error("Native speech recognition failed, falling back", err);
+        setError(
+          "La dictée vocale native a échoué. Nouvelle tentative avec la transcription locale...",
+        );
+        recognitionRef.current = null;
+        setIsRecording(false);
+        setIsTranscribing(false);
+      }
+    }
+
+    if (!canRecordAudio) {
+      setError("La dictée vocale n'est pas disponible sur cet appareil.");
       return;
     }
 
@@ -109,9 +178,23 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       console.error("Microphone permission or initialization failed", err);
       setError("Impossible d'accéder au micro. Vérifie les permissions.");
     }
-  }, [isRecording, isTranscribing, onTranscription, transcribeBlob]);
+  }, [
+    hasNativeRecognition,
+    isRecording,
+    isTranscribing,
+    onTranscription,
+    transcribeBlob,
+  ]);
 
   const stopRecording = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsRecording(false);
+      setIsTranscribing(false);
+      return;
+    }
+
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
@@ -122,6 +205,37 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       if (!text.trim()) {
         return;
       }
+
+      if (hasNativeTts) {
+        try {
+          setError(null);
+          setIsSpeaking(true);
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = "fr-FR";
+          const voices = window.speechSynthesis.getVoices();
+          const frenchVoice = voices.find((voice) =>
+            voice.lang?.toLowerCase().startsWith("fr"),
+          );
+          if (frenchVoice) {
+            utterance.voice = frenchVoice;
+          }
+          utterance.onend = () => setIsSpeaking(false);
+          utterance.onerror = (event) => {
+            console.error("Native TTS error", event.error);
+            setIsSpeaking(false);
+            setError(
+              "La synthèse vocale du navigateur a échoué. Réessaie ou réduis la longueur du texte.",
+            );
+          };
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+          return;
+        } catch (err) {
+          console.error("Native TTS failed, falling back", err);
+          setIsSpeaking(false);
+        }
+      }
+
       try {
         setError(null);
         setIsSpeaking(true);
@@ -156,7 +270,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         );
       }
     },
-    [getAudioContext, resetPlayback],
+    [getAudioContext, hasNativeTts, resetPlayback],
   );
 
   return {
