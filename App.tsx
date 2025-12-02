@@ -19,7 +19,6 @@ import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
-import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
   Config,
@@ -28,8 +27,9 @@ import type {
   InitProgressReport,
   MLCEngine,
 } from "./types";
+import { useSemanticMemory } from "./useSemanticMemory";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
-import type { ScoredMemoryEntry } from "./memory";
+import type { ReasoningTrace } from "./reasoning";
 
 declare global {
   interface Navigator {
@@ -68,19 +68,6 @@ const FRESH_DATA_PATTERNS = [
   /\b(?:heure\s+(?:actuelle|locale)|quelle\s+heure\s+est-il|current\s+time)\b/i,
 ];
 
-type ReasoningTrace = {
-  id: number;
-  requestedAction: "search" | "respond";
-  effectiveAction: "search" | "respond";
-  query?: string | null;
-  plan: string;
-  rationale?: string;
-  memoryContext: string;
-  memoryEnabled: boolean;
-  memoryResults: ScoredMemoryEntry[];
-  timestamp: number;
-};
-
 const normalizeQuery = (text: string) =>
   text
     .replace(/\s+/g, " ")
@@ -92,6 +79,28 @@ const deriveFreshDataHint = (text: string) => {
   if (!text) return null;
   const match = FRESH_DATA_PATTERNS.find((pattern) => pattern.test(text));
   return match ? normalizeQuery(text) : null;
+};
+
+const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
+
+const normalizeSearchApiBase = (value: string | null | undefined) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_SEARCH_API_BASE;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return DEFAULT_SEARCH_API_BASE;
+    }
+
+    const normalizedPath = url.pathname.endsWith("/")
+      ? url.pathname
+      : `${url.pathname}/`;
+
+    return `${url.origin}${normalizedPath}`;
+  } catch {
+    return DEFAULT_SEARCH_API_BASE;
+  }
 };
 
 const App: React.FC = () => {
@@ -116,12 +125,6 @@ const App: React.FC = () => {
   const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
     null,
   );
-
-  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
-    enabled: config.semanticMemoryEnabled,
-    maxEntries: config.semanticMemoryMaxEntries,
-    neighbors: config.semanticMemoryNeighbors,
-  });
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -190,10 +193,16 @@ Règles :
       semanticMemoryMaxEntries: getNumberSetting("mg_semantic_max_entries", 96),
       semanticMemoryNeighbors: getNumberSetting("mg_semantic_neighbors", 4),
       toolSearchEnabled: getBooleanSetting("mg_tool_search_enabled", true),
-      searchApiBase:
-        localStorage.getItem("mg_search_api_base") ||
-        "https://api.duckduckgo.com",
+      searchApiBase: normalizeSearchApiBase(
+        localStorage.getItem("mg_search_api_base") || DEFAULT_SEARCH_API_BASE,
+      ),
     };
+  });
+
+  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
+    enabled: config.semanticMemoryEnabled,
+    maxEntries: config.semanticMemoryMaxEntries,
+    neighbors: config.semanticMemoryNeighbors,
   });
 
   const toolSpecPrompt = useMemo(
@@ -531,7 +540,7 @@ Règles :
     }
 
     try {
-      const apiBase = config.searchApiBase || "https://api.duckduckgo.com";
+      const apiBase = config.searchApiBase || DEFAULT_SEARCH_API_BASE;
       const rawUrl = `${apiBase}?q=${encodeURIComponent(query)}&format=json&no_html=1`;
       const proxiedUrl = rawUrl.startsWith("http")
         ? `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`
@@ -747,8 +756,10 @@ Règles :
         );
       }
 
+      const traceTimestamp = Date.now();
+
       setReasoningTrace({
-        id: Date.now(),
+        id: traceTimestamp,
         requestedAction: decision.action,
         effectiveAction,
         query: searchQueryToUse,
@@ -757,7 +768,7 @@ Règles :
         memoryContext: memoryLookup.context,
         memoryEnabled: config.semanticMemoryEnabled,
         memoryResults: memoryLookup.results,
-        timestamp: Date.now(),
+        timestamp: traceTimestamp,
       });
 
       if (searchQueryToUse) {
@@ -900,8 +911,16 @@ Règles :
   };
 
   const handleSaveSettings = (newConfig: Config) => {
+    const normalizedSearchApiBase = normalizeSearchApiBase(
+      newConfig.searchApiBase,
+    );
+
     setConfig((prevConfig) => {
-      const updatedConfig = { ...prevConfig, ...newConfig };
+      const updatedConfig = {
+        ...prevConfig,
+        ...newConfig,
+        searchApiBase: normalizedSearchApiBase,
+      };
       localStorage.setItem("mg_model", updatedConfig.modelId);
       localStorage.setItem("mg_system", updatedConfig.systemPrompt);
       localStorage.setItem("mg_temp", updatedConfig.temperature.toString());

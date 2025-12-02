@@ -33,7 +33,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >,
   ) => {
-    const { name, value, type, checked } = e.target as HTMLInputElement;
+    const { name, value } = e.target;
     const numericFields = [
       "temperature",
       "maxTokens",
@@ -41,14 +41,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       "semanticMemoryNeighbors",
     ];
 
-    const nextValue =
-      type === "checkbox"
-        ? checked
-        : numericFields.includes(name)
-          ? Number(value)
-          : value;
+    setConfig((prev) => {
+      if (e.target instanceof HTMLInputElement && e.target.type === "checkbox") {
+        return { ...prev, [name]: e.target.checked };
+      }
 
-    setConfig((prev) => ({ ...prev, [name]: nextValue }));
+      if (numericFields.includes(name)) {
+        const parsed = Number(value);
+        const fallback = prev[name as keyof Config];
+        const nextValue = Number.isFinite(parsed) ? parsed : fallback;
+        return { ...prev, [name]: nextValue };
+      }
+
+      return { ...prev, [name]: value };
+    });
   };
 
   return (
@@ -173,7 +179,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               value={config.searchApiBase}
               onChange={handleInputChange}
               className="setting-input"
-              placeholder="https://api.duckduckgo.com"
+              placeholder="https://api.duckduckgo.com/"
               disabled={!config.toolSearchEnabled}
             />
           </div>
