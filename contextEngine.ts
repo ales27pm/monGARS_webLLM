@@ -168,70 +168,6 @@ function selectHistoryUnderBudget(
   return { selected: selected.map((s) => s.msg), truncated };
 }
 
-async function summarizeMessages(
-  engine: MLCEngine,
-  messages: Message[],
-  language: "fr" | "en" | "auto" = "fr",
-  options?: { maxInputTokens?: number },
-): Promise<string> {
-  if (!messages.length) return "";
-
-  const maxTokens = options?.maxInputTokens ?? 1200;
-  const lines: string[] = [];
-  let usedTokens = 0;
-
-  for (const m of messages) {
-    const line = `${m.role.toUpperCase()}: ${m.content}`;
-    const tokens = estimateTokens(line);
-    if (usedTokens + tokens > maxTokens) {
-      break;
-    }
-    lines.push(line);
-    usedTokens += tokens;
-  }
-
-  const joined = lines.join("\n");
-
-  const localeHint =
-    language === "auto"
-      ? "Tu peux répondre en français ou en anglais selon le contenu."
-      : language === "fr"
-      ? "Réponds en français."
-      : "Respond in English.";
-
-  const prompt = `
-Tu es un assistant qui crée des résumés extrêmement compacts pour aider un autre modèle à raisonner.
-
-${localeHint}
-
-Voici un extrait de conversation ou de notes:
-
----
-${joined}
----
-
-Ta tâche:
-1. Résumer en 5–10 puces maximales.
-2. Garder les infos factuelles importantes, les décisions, les contraintes.
-3. Ne pas ajouter d'informations non présentes.
-4. Être aussi concis que possible, sans perdre les points clés.
-`;
-
-  const result = await engine.chat.completions.create({
-    messages: [
-      { role: "system", content: "Tu es un expert en synthèse ultra-compacte." },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.1,
-    max_tokens: 512,
-    stream: false,
-  });
-
-  const content =
-    (result as any).choices?.[0]?.message?.content ?? "[Résumé indisponible]";
-  return typeof content === "string" ? content : JSON.stringify(content);
-}
-
 function computeEffectiveBudget(budget?: Partial<ContextBudget>): ContextBudget {
   return {
     totalTokens: budget?.totalTokens ?? 4096,
@@ -277,8 +213,46 @@ const clampTextToBudget = (text: string, tokenBudget: number) => {
   return trimmed || text.slice(0, Math.min(text.length, tokenBudget * 4));
 };
 
+const buildHeuristicConversationSummary = (
+  messages: Message[],
+  tokenBudget: number,
+) => {
+  const lines: string[] = [];
+  let usedTokens = 0;
+
+  for (const message of messages) {
+    const header = message.role === "user" ? "Utilisateur" : message.role === "assistant" ? "Assistant" : "Outil";
+    const available = Math.max(12, Math.floor((tokenBudget - usedTokens) / 2));
+    const snippet = clampTextToBudget(message.content || "", available);
+    const line = `- ${header}: ${snippet}`;
+    const tokens = estimateTokens(line);
+
+    if (usedTokens + tokens > tokenBudget) {
+      break;
+    }
+
+    lines.push(line);
+    usedTokens += tokens;
+  }
+
+  return lines.join("\n");
+};
+
+const buildHeuristicMemorySummary = (
+  results: ContextSlices["memoryResults"],
+  tokenBudget: number,
+) => {
+  if (!results || !results.length) return null;
+
+  const formatted = results
+    .map((r, idx) => `(${idx + 1}) ${r.content}`)
+    .join("\n\n");
+
+  return clampTextToBudget(formatted, tokenBudget);
+};
+
 async function buildConversationSlice(
-  engine: MLCEngine,
+  _engine: MLCEngine,
   history: Message[],
   userText: string,
   budget: ContextBudget,
@@ -305,9 +279,8 @@ async function buildConversationSlice(
 
   const older = selectedHistory.slice(0, selectedHistory.length - 4);
   const recent = selectedHistory.slice(-4);
-  const summary = await summarizeMessages(engine, older, "fr", {
-    maxInputTokens: Math.max(256, Math.min(1200, budget.answerTokens - 600)),
-  });
+  const heuristicBudget = Math.max(256, Math.min(1200, budget.answerTokens - 600));
+  const summary = buildHeuristicConversationSummary(older, heuristicBudget);
 
   return {
     conversationMessages: recent,
@@ -317,7 +290,7 @@ async function buildConversationSlice(
 }
 
 async function buildMemorySlice(
-  engine: MLCEngine,
+  _engine: MLCEngine,
   memory: SemanticMemoryClient | null,
   userText: string,
   budget: ContextBudget,
@@ -345,28 +318,10 @@ async function buildMemorySlice(
     memoryHitCount = searchResult.results.length;
 
     if (searchResult.results.length > 0) {
-      const formatted = searchResult.results
-        .map((r, idx) => `(${idx + 1}) ${r.content}`)
-        .join("\n\n");
-
-      const toSummarize = `
-Elements mémoire pertinents (classés par similarité):
-
-${formatted}
-`;
-
-      memorySummary = await summarizeMessages(
-        engine,
-        [
-          {
-            id: "memory",
-            role: "user",
-            content: toSummarize,
-            timestamp: Date.now(),
-          },
-        ],
-        "fr",
-        { maxInputTokens: Math.max(256, Math.min(1200, budget.answerTokens - 600)) },
+      const summaryBudget = Math.max(256, Math.min(1200, budget.answerTokens - 400));
+      memorySummary = buildHeuristicMemorySummary(
+        searchResult.results,
+        summaryBudget,
       );
     }
   } catch (err) {
@@ -545,6 +500,7 @@ export async function buildContext(
   } = input;
 
   void _config;
+  void engine;
 
   const effectiveBudget = computeEffectiveBudget(budget);
   const userText = userMessage.content || "";
