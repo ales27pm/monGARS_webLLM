@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { z } from 'zod';
 
 let webLLMModulePromise: Promise<any> | null = null;
 async function getWebLLM() {
@@ -81,6 +82,33 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
 
+  const timestampSchema = z.preprocess((value) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? Date.now() : parsed;
+    }
+
+    return Date.now();
+  }, z.number());
+
+  const messageSchema = z.object({
+    id: z.string(),
+    role: z.enum(['assistant', 'tool', 'user']).catch('user'),
+    content: z.union([z.string(), z.null()]).transform((value) =>
+      typeof value === 'string' ? value : ''
+    ),
+    timestamp: timestampSchema,
+    tokens: z.preprocess(
+      (value) =>
+        typeof value === 'number' && Number.isFinite(value) ? value : undefined,
+      z.number().optional()
+    ),
+  });
+
   const [config, setConfig] = useState<Config>(() => {
     const savedConfig = {
       modelId: localStorage.getItem('mg_model') || MODEL_ID,
@@ -124,35 +152,29 @@ Règles :
       const stored = localStorage.getItem('mg_conversation_default');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const sanitized = parsed
-            .filter((item: any) => item && typeof item.id === 'string')
-            .map((item: any) => {
-              let timestamp: number;
+        const parsedArray = z.array(z.unknown()).safeParse(parsed);
 
-              if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
-                timestamp = item.timestamp;
-              } else if (typeof item.timestamp === 'string') {
-                const parsedTimestamp = Date.parse(item.timestamp);
-                timestamp = Number.isNaN(parsedTimestamp) ? Date.now() : parsedTimestamp;
-              } else {
-                timestamp = Date.now();
+        if (parsedArray.success) {
+          const sanitized = parsedArray.data.reduce<Message[]>(
+            (acc, item) => {
+              const result = messageSchema.safeParse(item);
+              if (result.success) {
+                acc.push(result.data);
               }
+              return acc;
+            },
+            []
+          );
 
-              return {
-                id: item.id,
-                role:
-                  item.role === 'assistant' || item.role === 'tool'
-                    ? item.role
-                    : 'user',
-                content: typeof item.content === 'string' ? item.content : '',
-                timestamp,
-                tokens:
-                  typeof item.tokens === 'number' && Number.isFinite(item.tokens)
-                    ? item.tokens
-                    : undefined,
-              };
-            });
+          if (sanitized.length === 0 && parsedArray.data.length > 0) {
+            localStorage.removeItem('mg_conversation_default');
+            addToast(
+              'Conversation réinitialisée',
+              'Les données stockées étaient invalides et ont été effacées.',
+              'warning'
+            );
+          }
+
           setMessages(sanitized);
         } else {
           localStorage.removeItem('mg_conversation_default');
