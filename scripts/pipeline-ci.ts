@@ -208,31 +208,95 @@ const promptCases: PromptCase[] = [
       expectResponseMissing: true,
     },
   },
+  {
+    id: "future-carbon-search-hint",
+    description:
+      "Demande future avec sources récentes où le modèle répond sans recherche : la normalisation doit signaler l'absence de réponse et l'indication de recherche.",
+    userInput:
+      "L'impact économique du nouveau tarif carbone européen en 2026, avec sources récentes.",
+    history: [],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"respond","plan":"Répondre rapidement","rationale":"Sources récentes 2026 requises","response":""}',
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: true,
+      warningSubstrings: [
+        "Justification suggère search",
+        "Réponse finale absente",
+      ],
+    },
+  },
+  {
+    id: "router-plan-rationale-contradiction",
+    description:
+      "Plan privilégie une réponse directe mais l'action est search : vérifier l'alerte de contradiction et l'ignorance de la réponse.",
+    userInput:
+      "Explique rapidement comment réinitialiser un routeur domestique et quand appeler le support.",
+    history: [
+      buildMessage(
+        "h8",
+        "assistant",
+        "Je peux te guider directement sans support si besoin.",
+      ),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      '{"action":"search","query":"reset routeur domicile support","plan":"Répondre en synthèse courte","rationale":"Rechercher les étapes précises","response":"Appuie 10 secondes sur Reset."}',
+    expectations: {
+      expectedAction: "search",
+      warningSubstrings: [
+        "Plan suggère respond mais action search retenue.",
+        "Réponse finale fournie mais ignorée",
+      ],
+    },
+  },
+  {
+    id: "club-cyber-loose-plan",
+    description:
+      "Réponse libre hors JSON avec plan minimal : le fallback doit conserver respond et ne pas marquer la réponse comme manquante.",
+    userInput:
+      "Liste trois étapes pour créer un club cybersécurité universitaire.",
+    history: [
+      buildMessage("h9", "user", "Contexte: association étudiante débutante."),
+    ],
+    toolSpecPrompt:
+      "Outil search: GET /search?q=... (retourne les premiers liens).",
+    modelDecision:
+      "action: respond\nplan: étapes courtes\nresponse: 1) Trouver un sponsor 2) Définir un programme 3) Organiser la première réunion",
+    expectations: {
+      expectedAction: "respond",
+      expectResponseMissing: false,
+      warningSubstrings: ["Échec de parsing JSON"],
+    },
+  },
 ];
 
 type NextPrompt = { title: string; prompt: string; objective: string };
 
 const nextRoundPrompts: NextPrompt[] = [
   {
-    title: "Clarifier quand search est nécessaire",
+    title: "Recherche requise malgré réponse fournie",
     prompt:
-      "L'impact économique du nouveau tarif carbone européen en 2026, avec sources récentes.",
+      "Que disent les dernières projections climatiques 2027 du GIEC? Inclure les mises à jour récentes.",
     objective:
-      "Vérifier que le pipeline force la recherche pour des données futures et exige une requête précise.",
+      "Vérifier que le pipeline signale les besoins de recherche pour des données futures même si le modèle répond directement.",
   },
   {
-    title: "Récupération de réponse libre",
+    title: "Plan minimal et réponse libre",
     prompt:
-      "Liste trois étapes pour créer un club cybersécurité universitaire.",
+      "Donne un plan succinct pour lancer un challenge capture-the-flag étudiant sans accès internet.",
     objective:
-      "Valider la robustesse de la récupération de réponse quand le modèle répond hors JSON avec un plan incomplet.",
+      "Tester la récupération de réponse hors JSON avec un plan incomplet et l'émission d'avertissements adaptés.",
   },
   {
-    title: "Détection de contradictions plan/rationale",
+    title: "Contradiction entre justification et action",
     prompt:
-      "Explique rapidement comment réinitialiser un routeur domestique et quand appeler le support.",
+      "Dois-je chercher des sources externes pour comparer TLS 1.3 et QUIC ou puis-je répondre directement?",
     objective:
-      "Assurer que le plan Tree-of-Thought est présent et cohérent même si le modèle minimise la justification.",
+      "S'assurer que les contradictions entre justification et action sont détectées et signalées par le pipeline.",
   },
 ];
 

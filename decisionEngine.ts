@@ -139,6 +139,8 @@ export type DecisionResult = {
     responseMissing?: boolean;
     responseMissingReason?: string;
     responseRecovered?: boolean;
+    planSuggestedAction?: NormalizationMeta["planSuggestedAction"];
+    rationaleSuggestedAction?: NormalizationMeta["rationaleSuggestedAction"];
   };
 };
 
@@ -176,6 +178,8 @@ type NormalizationMeta = {
   responseRecovered?: boolean;
   fallbackQueryMissing?: boolean;
   fallbackResponseMissing?: boolean;
+  planSuggestedAction?: "search" | "respond";
+  rationaleSuggestedAction?: "search" | "respond";
 };
 
 const recoverLooseResponse = (raw: string): string | undefined => {
@@ -188,6 +192,33 @@ const recoverLooseResponse = (raw: string): string | undefined => {
 
   const looseMatch = raw.match(/response\s*[:=]\s*([^\n{}]+)/i);
   return looseMatch?.[1]?.trim();
+};
+
+const detectActionHint = (
+  value?: string,
+): NormalizationMeta["planSuggestedAction"] => {
+  if (!value?.trim()) return undefined;
+
+  const normalized = value.toLowerCase();
+  const searchHints = [
+    "recherche",
+    "chercher",
+    "source",
+    "actualit",
+    "donnée fraîche",
+    "mise à jour",
+    "source récente",
+  ];
+  const respondHints = ["répondre", "réponse directe", "synthèse", "rédiger"];
+
+  if (searchHints.some((hint) => normalized.includes(hint))) {
+    return "search";
+  }
+  if (respondHints.some((hint) => normalized.includes(hint))) {
+    return "respond";
+  }
+
+  return undefined;
 };
 
 const normalizeDecisionCore = (
@@ -257,6 +288,9 @@ const normalizeDecisionCore = (
       response: finalAction === "respond" ? normalizedResponse : undefined,
     } satisfies Omit<DecisionResult, "warnings">;
 
+    const planSuggestedAction = detectActionHint(providedPlan);
+    const rationaleSuggestedAction = detectActionHint(providedRationale);
+
     const meta: NormalizationMeta = {
       raw,
       source: "validated",
@@ -277,6 +311,8 @@ const normalizeDecisionCore = (
       responseMissing,
       responseMissingReason,
       responseRecovered,
+      planSuggestedAction,
+      rationaleSuggestedAction,
     };
 
     return { result, meta };
@@ -295,6 +331,9 @@ const normalizeDecisionCore = (
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies Omit<DecisionResult, "warnings">;
+
+  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
+  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
 
   const meta: NormalizationMeta = {
     raw,
@@ -316,6 +355,8 @@ const normalizeDecisionCore = (
       fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
     fallbackResponseMissing:
       fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    planSuggestedAction: detectActionHint(fallbackPlan),
+    rationaleSuggestedAction: detectActionHint(fallbackRationale),
   };
 
   return { result, meta };
@@ -340,6 +381,23 @@ const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
     if (meta.fallbackResponseMissing) {
       warnings.push(
         "Aucune réponse trouvée dans le fallback, action respond potentiellement invalide.",
+      );
+    }
+
+    if (
+      meta.planSuggestedAction &&
+      meta.planSuggestedAction !== meta.finalAction
+    ) {
+      warnings.push(
+        `Plan suggère ${meta.planSuggestedAction} mais action ${meta.finalAction} retenue.`,
+      );
+    }
+    if (
+      meta.rationaleSuggestedAction &&
+      meta.rationaleSuggestedAction !== meta.finalAction
+    ) {
+      warnings.push(
+        `Justification suggère ${meta.rationaleSuggestedAction} mais action ${meta.finalAction} retenue.`,
       );
     }
 
@@ -398,6 +456,23 @@ const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
     );
   }
 
+  if (
+    meta.planSuggestedAction &&
+    meta.planSuggestedAction !== meta.finalAction
+  ) {
+    warnings.push(
+      `Plan suggère ${meta.planSuggestedAction} mais action ${meta.finalAction} retenue.`,
+    );
+  }
+  if (
+    meta.rationaleSuggestedAction &&
+    meta.rationaleSuggestedAction !== meta.finalAction
+  ) {
+    warnings.push(
+      `Justification suggère ${meta.rationaleSuggestedAction} mais action ${meta.finalAction} retenue.`,
+    );
+  }
+
   return warnings;
 };
 
@@ -420,6 +495,8 @@ export const normalizeDecision = (raw: string): DecisionResult => {
     responseMissing: meta.responseMissing,
     responseMissingReason: meta.responseMissingReason,
     responseRecovered: meta.responseRecovered,
+    planSuggestedAction: meta.planSuggestedAction,
+    rationaleSuggestedAction: meta.rationaleSuggestedAction,
   };
 
   return { ...result, warnings, diagnostics } satisfies DecisionResult;
