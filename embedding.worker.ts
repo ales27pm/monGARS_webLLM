@@ -113,9 +113,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       }
       case "embed": {
         const vector = await embed(data.text);
+        const transferableVector = vector.slice();
         postMessage(
-          { type: "embed_result", requestId: data.requestId, vector } satisfies WorkerResponse,
-          [vector.buffer],
+          { type: "embed_result", requestId: data.requestId, vector: transferableVector } satisfies WorkerResponse,
+          [transferableVector.buffer],
         );
         break;
       }
