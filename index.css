@@ -1,0 +1,14 @@
+/* Global CSS loaded by Vite to complement CDN-based styles. */
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
