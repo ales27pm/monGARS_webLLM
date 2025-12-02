@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { buildContextualHints } from "./contextProfiling";
 import type { Config, Message, MLCEngine } from "./types";
 
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
@@ -14,6 +15,7 @@ appeler l'outil de recherche.
 
 Contraintes incontournables :
 - Inspecte minutieusement la requête et le contexte (messages récents uniquement).
+- Utilise les indices contextuels fournis pour éviter les hors-sujets et les refus injustifiés.
 - Construis un plan Tree-of-Thought en au moins 3 étapes numérotées (diagnostic, pistes, validation).
 - Choisis strictement entre "search" (si une actualité, une donnée récente ou un doute factuel existe) ou "respond".
 - Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
@@ -37,7 +39,9 @@ const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
+      "\n",
+    );
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
@@ -114,47 +118,238 @@ export const stripJson = (raw: string) => {
   }
 };
 
-export const normalizeDecision = (raw: string) => {
-  const parsed = stripJson(raw) || {};
+export type DecisionResult = {
+  action: "search" | "respond";
+  query?: string;
+  plan: string;
+  rationale: string;
+  response?: string;
+  warnings: string[];
+  diagnostics: {
+    source: NormalizationMeta["source"];
+    parsingIssueSummary?: string;
+    hadPlan: boolean;
+    hadRationale: boolean;
+    actionBeforeSwitch?: NormalizationMeta["actionBeforeSwitch"];
+    actionAfterSwitch: NormalizationMeta["actionAfterSwitch"];
+    finalAction: NormalizationMeta["finalAction"];
+    actionFlip?: NormalizationMeta["actionFlip"];
+    hasQuery: boolean;
+    hasResponse: boolean;
+    responseMissing?: boolean;
+    responseMissingReason?: string;
+    responseRecovered?: boolean;
+    planSuggestedAction?: NormalizationMeta["planSuggestedAction"];
+    rationaleSuggestedAction?: NormalizationMeta["rationaleSuggestedAction"];
+  };
+};
+
+const formatZodIssues = (issues: z.ZodIssue[]) =>
+  issues
+    .map((issue) =>
+      [issue.path?.join("."), issue.message].filter(Boolean).join(" → "),
+    )
+    .filter(Boolean)
+    .join(" | ");
+
+const countPlanSteps = (plan: string) =>
+  plan
+    .split(/\n+/)
+    .map((step) => step.trim())
+    .filter(Boolean).length;
+
+type NormalizationMeta = {
+  raw: string;
+  source: "validated" | "fallback";
+  parsingIssues?: z.ZodIssue[];
+  providedPlan?: string;
+  providedStepCount?: number;
+  planReformatted?: boolean;
+  hadPlan: boolean;
+  hadRationale: boolean;
+  actionBeforeSwitch?: "search" | "respond";
+  actionAfterSwitch: "search" | "respond";
+  finalAction: "search" | "respond";
+  actionFlip?: "searchToRespond" | "respondToSearch";
+  hasQuery: boolean;
+  hasResponse: boolean;
+  responseMissing?: boolean;
+  responseMissingReason?: string;
+  responseRecovered?: boolean;
+  fallbackQueryMissing?: boolean;
+  fallbackResponseMissing?: boolean;
+  planSuggestedAction?: "search" | "respond";
+  rationaleSuggestedAction?: "search" | "respond";
+};
+
+const recoverLooseResponse = (raw: string): string | undefined => {
+  if (!raw.trim()) return undefined;
+
+  const jsonMatch = raw.match(/"response"\s*:\s*"([\s\S]*?)"\s*[},]/i);
+  if (jsonMatch?.[1]?.trim()) {
+    return jsonMatch[1].trim();
+  }
+
+  const looseMatch = raw.match(/response\s*[:=]\s*([^\n{}]+)/i);
+  return looseMatch?.[1]?.trim();
+};
+
+const detectActionHint = (
+  value?: string,
+): NormalizationMeta["planSuggestedAction"] => {
+  if (!value?.trim()) return undefined;
+
+  const normalized = value.toLowerCase();
+  const normalizedAscii = normalized
+    .normalize("NFD")
+    .replace(/[^\p{ASCII}]/gu, "")
+    .replace(/[\u0300-\u036f]/g, "");
+  const searchHints = [
+    "recherche",
+    "chercher",
+    "source",
+    "actualit",
+    "actualite",
+    "donnée fraîche",
+    "donnee fraiche",
+    "donnees recentes",
+    "mises a jour",
+    "mise a jour",
+    "mises à jour",
+    "mise à jour",
+    "source récente",
+    "source recente",
+    "donnees fraiches",
+    "donnee fraiche",
+    "donnees du mois",
+    "derniers chiffres",
+    "ce mois-ci",
+    "mise a jour recente",
+    "mise à jour récente",
+    "donnée recente",
+    "donnee recente",
+  ];
+  const respondHints = [
+    "répondre",
+    "réponse directe",
+    "synthèse",
+    "rédiger",
+    "sans chercher",
+    "sans recherche",
+    "réponds directement",
+    "reponds directement",
+    "déjà les infos",
+    "deja les infos",
+  ];
+
+  if (searchHints.some((hint) => normalized.includes(hint))) {
+    return "search";
+  }
+  if (searchHints.some((hint) => normalizedAscii.includes(hint))) {
+    return "search";
+  }
+  if (respondHints.some((hint) => normalized.includes(hint))) {
+    return "respond";
+  }
+
+  return undefined;
+};
+
+const normalizeDecisionCore = (
+  raw: string,
+): { result: Omit<DecisionResult, "warnings">; meta: NormalizationMeta } => {
+  const parsedJson = stripJson(raw);
+  const parsed = parsedJson || {};
+  const parsedFromJson = !!parsedJson;
   const decision = decisionSchema.safeParse(parsed);
+  const shouldFallback =
+    !parsedFromJson && (!decision.success || Object.keys(parsed).length === 0);
 
-  if (decision.success) {
+  if (decision.success && !shouldFallback) {
     const normalizedQuery = decision.data.query?.trim();
-    const normalizedResponse = decision.data.response?.trim();
-    const normalized = {
-      action: decision.data.action,
-      plan: normalizePlan(decision.data.plan),
-      rationale: decision.data.rationale?.trim(),
-      query: normalizedQuery,
-      response: normalizedResponse,
-    };
-    const hasQuery = !!normalizedQuery;
-    const hasResponse = !!normalizedResponse;
+    const normalizedResponse =
+      decision.data.response?.trim() || recoverLooseResponse(raw);
+    const normalizedPlan = normalizePlan(decision.data.plan);
+    const providedPlan = decision.data.plan?.trim() || "";
+    const providedRationale = decision.data.rationale?.trim();
 
-    let { action } = decision.data;
+    let action = decision.data.action;
+    let actionFlip: NormalizationMeta["actionFlip"];
+    let responseMissing = false;
+    let responseMissingReason: NormalizationMeta["responseMissingReason"];
+    let responseRecovered = false;
 
     // If the model intends to search but provides no query, switch to respond.
-    // If it intends to respond but provides no response, switch to search.
-    if (action === "search" && !hasQuery) {
+    // For respond without a response, keep respond and let the answering pipeline
+    // generate the final message to avoid unnecessary searches.
+    if (action === "search" && !normalizedQuery) {
       action = "respond";
-    } else if (action === "respond" && !hasResponse) {
-      action = "search";
+      actionFlip = "searchToRespond";
     }
 
-    const wantsSearch = action === "search" && hasQuery;
-    const finalAction: "search" | "respond" = wantsSearch ? "search" : "respond";
+    const wantsSearch = action === "search" && !!normalizedQuery;
+    const finalAction: "search" | "respond" = wantsSearch
+      ? "search"
+      : "respond";
 
-    return {
+    const hadResponseField = Object.prototype.hasOwnProperty.call(
+      parsed,
+      "response",
+    );
+
+    if (finalAction === "respond" && !normalizedResponse) {
+      responseMissing = true;
+      responseMissingReason = hadResponseField
+        ? "Champ response vide dans le JSON du modèle."
+        : "Champ response absent de la sortie du modèle.";
+    } else if (
+      finalAction === "respond" &&
+      !decision.data.response &&
+      normalizedResponse
+    ) {
+      responseRecovered = true;
+    }
+
+    const result: Omit<DecisionResult, "warnings"> = {
       action: finalAction,
-      query: finalAction === "search" ? normalized.query : undefined,
-      plan: normalized.plan,
+      query: finalAction === "search" ? normalizedQuery : undefined,
+      plan: normalizedPlan,
       rationale:
-        normalized.rationale ||
+        providedRationale ||
         (finalAction === "search"
           ? "Recherche requise pour données fraîches."
           : "Réponse directe appropriée."),
-      response: finalAction === "respond" ? normalized.response : undefined,
-    } satisfies z.infer<typeof decisionSchema>;
+      response: finalAction === "respond" ? normalizedResponse : undefined,
+    } satisfies Omit<DecisionResult, "warnings">;
+
+    const planSuggestedAction = detectActionHint(providedPlan);
+    const rationaleSuggestedAction = detectActionHint(providedRationale);
+
+    const meta: NormalizationMeta = {
+      raw,
+      source: "validated",
+      parsingIssues: [],
+      providedPlan,
+      providedStepCount: providedPlan
+        ? countPlanSteps(providedPlan)
+        : undefined,
+      planReformatted: !!providedPlan && providedPlan !== normalizedPlan,
+      hadPlan: !!providedPlan,
+      hadRationale: !!providedRationale,
+      actionBeforeSwitch: decision.data.action,
+      actionAfterSwitch: action,
+      finalAction,
+      actionFlip,
+      hasQuery: !!normalizedQuery,
+      hasResponse: !!normalizedResponse,
+      responseMissing,
+      responseMissingReason,
+      responseRecovered,
+      planSuggestedAction,
+      rationaleSuggestedAction,
+    };
+
+    return { result, meta };
   }
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
@@ -163,32 +358,215 @@ export const normalizeDecision = (raw: string) => {
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
   );
 
-  return {
+  const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
     plan: normalizePlan(),
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
-  } satisfies z.infer<typeof decisionSchema>;
+  } satisfies Omit<DecisionResult, "warnings">;
+
+  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
+  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
+
+  const meta: NormalizationMeta = {
+    raw,
+    source: "fallback",
+    parsingIssues: decision.success ? [] : decision.error.issues,
+    hadPlan: false,
+    hadRationale: false,
+    actionAfterSwitch: fallbackAction as "search" | "respond",
+    finalAction: fallbackAction as "search" | "respond",
+    hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
+    hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
+    responseMissing:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    responseMissingReason:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim()
+        ? "Réponse absente dans la sortie non structurée du modèle."
+        : undefined,
+    fallbackQueryMissing:
+      fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
+    fallbackResponseMissing:
+      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    planSuggestedAction: detectActionHint(fallbackPlan),
+    rationaleSuggestedAction: detectActionHint(fallbackRationale),
+  };
+
+  return { result, meta };
 };
 
-export type DecisionResult = z.infer<typeof decisionSchema>;
+const buildDecisionWarnings = (meta: NormalizationMeta): string[] => {
+  if (meta.source === "fallback") {
+    const warnings = [
+      "Échec de parsing JSON, utilisation d'un fallback tolérant.",
+    ];
+
+    if (meta.parsingIssues && meta.parsingIssues.length > 0) {
+      warnings.push(
+        `Détails de validation : ${formatZodIssues(meta.parsingIssues)}`,
+      );
+    }
+    if (meta.fallbackQueryMissing) {
+      warnings.push(
+        "Aucune requête trouvée dans le fallback, action search potentiellement invalide.",
+      );
+    }
+    if (meta.fallbackResponseMissing) {
+      warnings.push(
+        "Aucune réponse trouvée dans le fallback, action respond potentiellement invalide.",
+      );
+    }
+
+    if (
+      meta.planSuggestedAction &&
+      meta.planSuggestedAction !== meta.finalAction
+    ) {
+      warnings.push(
+        `Plan suggère ${meta.planSuggestedAction} mais action ${meta.finalAction} retenue.`,
+      );
+    }
+    if (
+      meta.rationaleSuggestedAction &&
+      meta.rationaleSuggestedAction !== meta.finalAction
+    ) {
+      warnings.push(
+        `Justification suggère ${meta.rationaleSuggestedAction} mais action ${meta.finalAction} retenue.`,
+      );
+    }
+
+    return warnings;
+  }
+
+  const warnings: string[] = [];
+
+  if (!meta.hadPlan) {
+    warnings.push(
+      "Plan complété par défaut (absent dans la réponse du modèle).",
+    );
+  } else {
+    if ((meta.providedStepCount ?? 0) < 3) {
+      warnings.push(
+        `Plan Tree-of-Thought insuffisant (${meta.providedStepCount}/3 étapes), complété automatiquement.`,
+      );
+    }
+    if (meta.planReformatted) {
+      warnings.push(
+        "Plan reformatté pour respecter les garde-fous ToT (3-6 étapes).",
+      );
+    }
+  }
+
+  if (!meta.hadRationale) {
+    warnings.push("Justification absente, complétée par défaut.");
+  }
+
+  if (meta.finalAction === "respond" && meta.responseMissing) {
+    warnings.push(
+      meta.responseMissingReason
+        ? `Réponse finale absente : ${meta.responseMissingReason}`
+        : "Réponse finale absente, génération via le pipeline de réponse directe.",
+    );
+  }
+
+  if (meta.responseRecovered) {
+    warnings.push(
+      "Réponse récupérée à partir du texte non structuré du modèle (hors JSON).",
+    );
+  }
+
+  if (meta.actionFlip === "searchToRespond") {
+    warnings.push("Action inversée en respond faute de requête de recherche.");
+  } else if (meta.actionFlip === "respondToSearch") {
+    warnings.push("Action inversée en search faute de réponse finale.");
+  }
+
+  if (meta.finalAction === "respond" && meta.hasQuery) {
+    warnings.push("Requête de recherche fournie mais action respond retenue.");
+  }
+  if (meta.finalAction === "search" && meta.hasResponse) {
+    warnings.push(
+      "Réponse finale fournie mais ignorée car l'action est search.",
+    );
+  }
+
+  if (
+    meta.finalAction === "respond" &&
+    !meta.hasQuery &&
+    (meta.planSuggestedAction === "search" ||
+      meta.rationaleSuggestedAction === "search")
+  ) {
+    warnings.push(
+      "Recherche requise mais requête de recherche absente, action respond conservée.",
+    );
+  }
+
+  if (
+    meta.planSuggestedAction &&
+    meta.planSuggestedAction !== meta.finalAction
+  ) {
+    warnings.push(
+      `Plan suggère ${meta.planSuggestedAction} mais action ${meta.finalAction} retenue.`,
+    );
+  }
+  if (
+    meta.rationaleSuggestedAction &&
+    meta.rationaleSuggestedAction !== meta.finalAction
+  ) {
+    warnings.push(
+      `Justification suggère ${meta.rationaleSuggestedAction} mais action ${meta.finalAction} retenue.`,
+    );
+  }
+
+  return warnings;
+};
+
+export const normalizeDecision = (raw: string): DecisionResult => {
+  const { result, meta } = normalizeDecisionCore(raw);
+  const warnings = buildDecisionWarnings(meta);
+  const diagnostics: DecisionResult["diagnostics"] = {
+    source: meta.source,
+    parsingIssueSummary: meta.parsingIssues
+      ?.map((issue) => issue.message)
+      .join(" | "),
+    hadPlan: meta.hadPlan,
+    hadRationale: meta.hadRationale,
+    actionBeforeSwitch: meta.actionBeforeSwitch,
+    actionAfterSwitch: meta.actionAfterSwitch,
+    finalAction: meta.finalAction,
+    actionFlip: meta.actionFlip,
+    hasQuery: meta.hasQuery,
+    hasResponse: meta.hasResponse,
+    responseMissing: meta.responseMissing,
+    responseMissingReason: meta.responseMissingReason,
+    responseRecovered: meta.responseRecovered,
+    planSuggestedAction: meta.planSuggestedAction,
+    rationaleSuggestedAction: meta.rationaleSuggestedAction,
+  };
+
+  return { ...result, warnings, diagnostics } satisfies DecisionResult;
+};
 
 export const buildDecisionMessages = (
   inputText: string,
   recentHistory: Message[],
   toolSpecPrompt: string,
-) => [
-  { role: "system", content: DECISION_SYSTEM_PROMPT },
-  {
-    role: "user",
-    content:
-      `Requête utilisateur:\n${inputText}\n\n` +
-      `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
-      `Outil disponible: ${toolSpecPrompt}\n` +
-      `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
-  },
-];
+) => {
+  const contextualHints = buildContextualHints(inputText, recentHistory);
+
+  return [
+    { role: "system", content: DECISION_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content:
+        `Requête utilisateur:\n${inputText}\n\n` +
+        `Historique récent (du plus ancien au plus récent):\n${formatConversationContext(recentHistory)}\n\n` +
+        `Profil contextuel à exploiter sans l'ignorer:\n${contextualHints}\n\n` +
+        `Outil disponible: ${toolSpecPrompt}\n` +
+        `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
+    },
+  ];
+};
 
 export const buildAnswerHistory = (
   decisionPlan: string,
