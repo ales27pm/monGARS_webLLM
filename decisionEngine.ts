@@ -42,13 +42,9 @@ const normalizePlan = (plan?: string) => {
 
   const normalizedSeparators = candidate
     .replace(/\r\n/g, "\n")
-    .replace(/^\s*\d+\)\s*/gm, (match) => `\n${match.trim()} `);
-
-  const rawSteps = normalizedSeparators
-    .split(/\n|;|\|/)
-    .map((s) => stripListPrefix(s))
-    .filter(Boolean);
-
+    const steps = candidate
+      .split(/\s*(?:\n|;|\||\d+\))\s*/)
+      .map((entry) => entry.trim())
   const totalSteps = Math.max(
     3,
     Math.min(6, rawSteps.length || DEFAULT_PLAN_STEPS.length),
