@@ -22,6 +22,11 @@ export interface Config {
   temperature: number;
   maxTokens: number;
   theme: 'light' | 'dark';
+  semanticMemoryEnabled: boolean;
+  semanticMemoryMaxEntries: number;
+  semanticMemoryNeighbors: number;
+  toolSearchEnabled: boolean;
+  searchApiBase: string;
 }
 
 export interface ToastInfo {

@@ -1,45 +1,68 @@
 import { useCallback, useEffect, useRef } from "react";
-import { EmbeddingMemory } from "./memory";
+import { EmbeddingMemory, type ScoredMemoryEntry } from "./memory";
 import type { Message } from "./types";
 
-export function useSemanticMemory(messages: Message[]) {
+export function useSemanticMemory(
+  messages: Message[],
+  options?: {
+    enabled?: boolean;
+    maxEntries?: number;
+    neighbors?: number;
+  },
+) {
+  const { enabled = true, maxEntries = 64, neighbors = 4 } = options || {};
   const memoryRef = useRef<EmbeddingMemory | null>(null);
 
-  if (!memoryRef.current) {
-    memoryRef.current = new EmbeddingMemory();
+  if (!memoryRef.current || memoryRef.current.getCapacity() !== maxEntries) {
+    memoryRef.current = new EmbeddingMemory(maxEntries);
   }
 
   const memory = memoryRef.current;
 
   useEffect(() => {
+    if (!enabled) {
+      memory.clear();
+      return;
+    }
+
     memory.warmup().catch((err) =>
       console.warn("Semantic memory warmup failed", err),
     );
-  }, [memory]);
+  }, [enabled, memory]);
 
   useEffect(() => {
+    if (!enabled) {
+      memory.clear();
+      return;
+    }
+
     memory
       .resetWithMessages(messages)
       .catch((err) =>
         console.warn("Impossible de recharger la mémoire sémantique", err),
       );
-  }, [memory, messages]);
+  }, [enabled, memory, messages]);
 
-  const buildMemoryContext = useCallback(
-    async (query: string) => {
+  const queryMemory = useCallback(
+    async (
+      query: string,
+    ): Promise<{ context: string; results: ScoredMemoryEntry[] }> => {
+      if (!enabled) return { context: "", results: [] };
+
       try {
-        const results = await memory.search(query, 4);
-        return memory.formatSummaries(results);
+        const results = await memory.search(query, neighbors);
+        return { context: memory.formatSummaries(results), results };
       } catch (error) {
         console.warn("Semantic memory search failed", error);
-        return "";
+        return { context: "", results: [] };
       }
     },
-    [memory],
+    [enabled, memory, neighbors],
   );
 
   const recordExchange = useCallback(
     async (user: Message, assistant: Message) => {
+      if (!enabled) return;
       try {
         await memory.addMessage(user);
         await memory.addMessage(assistant);
@@ -47,8 +70,8 @@ export function useSemanticMemory(messages: Message[]) {
         console.warn("Impossible d'enregistrer la mémoire sémantique", error);
       }
     },
-    [memory],
+    [enabled, memory],
   );
 
-  return { buildMemoryContext, recordExchange };
+  return { queryMemory, recordExchange, memoryEnabled: enabled };
 }
