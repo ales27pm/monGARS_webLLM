@@ -145,12 +145,6 @@ const App: React.FC = () => {
     null,
   );
 
-  const { queryMemory, recordExchange } = useSemanticMemoryHook(messages, {
-    enabled: config.semanticMemoryEnabled,
-    maxEntries: config.semanticMemoryMaxEntries,
-    neighbors: config.semanticMemoryNeighbors,
-  });
-
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
@@ -222,6 +216,12 @@ Règles :
         localStorage.getItem("mg_search_api_base") ||
         "https://api.duckduckgo.com",
     };
+  });
+
+  const { queryMemory, recordExchange } = useSemanticMemoryHook(messages, {
+    enabled: config.semanticMemoryEnabled,
+    maxEntries: config.semanticMemoryMaxEntries,
+    neighbors: config.semanticMemoryNeighbors,
   });
 
   const toolSpecPrompt = useMemo(
