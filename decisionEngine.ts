@@ -9,7 +9,8 @@ export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune 
 2) Donne la réponse finale en français clair et structurée.
 3) Si tu utilises des sources, liste-les en fin de réponse (titre + URL).`;
 
-export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou appeler l'outil de recherche.
+export const DECISION_SYSTEM_PROMPT = `Tu es un orchestrateur de raisonnement qui choisit entre répondre directement ou
+appeler l'outil de recherche.
 
 Contraintes incontournables :
 - Inspecte minutieusement la requête et le contexte (messages récents uniquement).
@@ -18,8 +19,45 @@ Contraintes incontournables :
 - Si tu choisis "search", propose un "query" optimisé (5-12 mots, factuel, sans ponctuation superflue, pas d'anaphores).
 - Si tu choisis "respond", produis immédiatement le champ "response" avec la réponse finale en français qui suit STRICTEMENT les garde-fous :
   ${ANSWER_GUARDRAILS}
+- Capacité : l'outil de recherche fournit Internet, ne prétends JAMAIS en être privé sauf erreur réseau réelle.
+- Code : si la demande concerne du code, fournis un extrait complet et exécutable avec les commandes d'installation et d'exécution.
+- Sources : ne fabrique jamais de références ou de liens. Cite uniquement des ouvrages ou URLs réelles ou précise qu'aucune source fiable n'est disponible.
 - Réponds UNIQUEMENT en JSON compact : {"action":"search|respond","query":"...","plan":"...","rationale":"...","response":"..."}.
 - Ne mets jamais de Markdown ni de texte hors JSON dans les valeurs.`;
+
+const DEFAULT_PLAN_STEPS = [
+  "Analyser précisément la demande et le contexte récent.",
+  "Décider si une recherche web est nécessaire ou si une réponse directe suffit.",
+  "Valider les faits et structurer la réponse finale en français clair.",
+];
+
+const stripListPrefix = (entry: string) =>
+  entry.replace(/^[-*\d.)\s]+/, "").trim();
+
+const normalizePlan = (plan?: string) => {
+  const candidate = plan?.trim();
+  if (!candidate) {
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+  }
+
+  const normalizedSeparators = candidate
+    .replace(/\r\n/g, "\n")
+    const steps = candidate
+      .split(/\s*(?:\n|;|\||\d+\))\s*/)
+      .map((entry) => entry.trim())
+  const totalSteps = Math.max(
+    3,
+    Math.min(6, rawSteps.length || DEFAULT_PLAN_STEPS.length),
+  );
+
+  const steps: string[] = [];
+  for (let i = 0; i < totalSteps; i++) {
+    const content = rawSteps[i] || DEFAULT_PLAN_STEPS[i] || "Étape";
+    steps.push(`${i + 1}) ${content}`);
+  }
+
+  return steps.join("\n");
+};
 
 const decisionSchema = z.object({
   action: z.enum(["search", "respond"]).catch("respond"),
@@ -81,7 +119,38 @@ export const normalizeDecision = (raw: string) => {
   const decision = decisionSchema.safeParse(parsed);
 
   if (decision.success) {
-    return decision.data;
+    const normalized = {
+      action: decision.data.action,
+      plan: normalizePlan(decision.data.plan),
+      const hasQuery = !!normalizedQuery;
+      const hasResponse = !!normalizedResponse;
+
+      let action = decision.data.action;
+
+      // If the model intends to search but provides no query, switch to respond.
+      // If it intends to respond but provides no response, switch to search.
+      if (action === "search" && !hasQuery) {
+        action = "respond";
+      } else if (action === "respond" && !hasResponse) {
+        action = "search";
+      }
+
+    };
+
+    const wantsSearch = normalized.action === "search" && !!normalized.query;
+    const finalAction: "search" | "respond" = wantsSearch ? "search" : "respond";
+
+    return {
+      action: finalAction,
+      query: finalAction === "search" ? normalized.query : undefined,
+      plan: normalized.plan,
+      rationale:
+        normalized.rationale ||
+        (finalAction === "search"
+          ? "Recherche requise pour données fraîches."
+          : "Réponse directe appropriée."),
+      response: finalAction === "respond" ? normalized.response : undefined,
+    } satisfies z.infer<typeof decisionSchema>;
   }
 
   const fallbackAction = /search/i.test(raw) ? "search" : "respond";
@@ -93,7 +162,7 @@ export const normalizeDecision = (raw: string) => {
   return {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
-    plan: "Analyser, traiter, valider.",
+    plan: normalizePlan(),
     rationale: "Fallback décision non structurée.",
     response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies z.infer<typeof decisionSchema>;
@@ -156,6 +225,7 @@ export async function decideAction(
     signal,
   });
 
-  const rawDecision = decisionCompletion.choices[0]?.message?.content?.trim() ?? "";
+  const rawDecision =
+    decisionCompletion.choices[0]?.message?.content?.trim() ?? "";
   return normalizeDecision(rawDecision);
 }
