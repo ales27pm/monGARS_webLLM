@@ -148,9 +148,14 @@ Règles :
     };
   });
 
-  const lastAssistantMessage = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.content;
+  const lastAssistantMessage = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "assistant") {
+        return messages[i].content;
+      }
+    }
+    return undefined;
+  })();
 
   const addToast = useCallback(
     (
@@ -286,54 +291,54 @@ Règles :
       try {
         const selectedModel = config.modelId;
 
-      const webllm = await getWebLLM();
-      const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
-        modelId: string,
-        options: {
-          initProgressCallback?: (report: InitProgressReport) => void;
-          appConfig?: any;
-        },
-      ) => Promise<any>;
+        const webllm = await getWebLLM();
+        const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
+          modelId: string,
+          options: {
+            initProgressCallback?: (report: InitProgressReport) => void;
+            appConfig?: any;
+          },
+        ) => Promise<any>;
 
-      // Ask WebLLM to create the engine for the selected model.  We do not
-      // provide a custom `appConfig` here. When the model ID corresponds to
-      // one of the officially supported models (including Qwen2.5), WebLLM
-      // automatically fetches the appropriate WASM runtime and model files.
-      const newEngine = (await CreateMLCEngineFn(selectedModel, {
-        initProgressCallback: (report: InitProgressReport) => {
-          setInitProgress({
-            progress: Math.round(report.progress * 100),
-            text: report.text,
-          });
-        },
-        // Note: No `appConfig` is passed. Passing an incorrect
-        // configuration can lead to cryptic errors (e.g. reading
-        // `.endsWith` on undefined). Let the runtime infer the correct
-        // configuration based on `selectedModel`.
-      })) as MLCEngine;
+        // Ask WebLLM to create the engine for the selected model.  We do not
+        // provide a custom `appConfig` here. When the model ID corresponds to
+        // one of the officially supported models (including Qwen2.5), WebLLM
+        // automatically fetches the appropriate WASM runtime and model files.
+        const newEngine = (await CreateMLCEngineFn(selectedModel, {
+          initProgressCallback: (report: InitProgressReport) => {
+            setInitProgress({
+              progress: Math.round(report.progress * 100),
+              text: report.text,
+            });
+          },
+          // Note: No `appConfig` is passed. Passing an incorrect
+          // configuration can lead to cryptic errors (e.g. reading
+          // `.endsWith` on undefined). Let the runtime infer the correct
+          // configuration based on `selectedModel`.
+        })) as MLCEngine;
 
-      setEngine(newEngine);
-      setEngineStatus("ready");
+        setEngine(newEngine);
+        setEngineStatus("ready");
 
-      addToast(
-        "Moteur chargé",
-        `Modèle ${selectedModel.replace("-q4f16_1-MLC", "")} prêt.`,
-        "success",
-      );
+        addToast(
+          "Moteur chargé",
+          `Modèle ${selectedModel.replace("-q4f16_1-MLC", "")} prêt.`,
+          "success",
+        );
 
-      setMessages((prev) => {
-        if (prev.length > 0) return prev;
-        const welcomeMessage: Message = {
-          id: `msg-${Date.now()}`,
-          role: "assistant",
-          content:
-            `Salut ! Je suis **Mon Gars**, ton assistant IA local.\n\n` +
-            `Je fonctionne entièrement *sur ton appareil* grâce à WebGPU : rien ne quitte ton téléphone.\n\n` +
-            `Pose-moi une question, ou demande-moi d'expliquer quelque chose.`,
-          timestamp: Date.now(),
-        };
-        return [welcomeMessage];
-      });
+        setMessages((prev) => {
+          if (prev.length > 0) return prev;
+          const welcomeMessage: Message = {
+            id: `msg-${Date.now()}`,
+            role: "assistant",
+            content:
+              `Salut ! Je suis **Mon Gars**, ton assistant IA local.\n\n` +
+              `Je fonctionne entièrement *sur ton appareil* grâce à WebGPU : rien ne quitte ton téléphone.\n\n` +
+              `Pose-moi une question, ou demande-moi d'expliquer quelque chose.`,
+            timestamp: Date.now(),
+          };
+          return [welcomeMessage];
+        });
 
         return newEngine;
       } catch (err: any) {
@@ -378,7 +383,9 @@ Règles :
           if (newEngine) {
             return true;
           }
-          console.error("Engine recovery failed: loadEngine did not initialize a new engine");
+          console.error(
+            "Engine recovery failed: loadEngine did not initialize a new engine",
+          );
         } catch (loadErr) {
           console.error("Engine recovery failed during loadEngine:", loadErr);
         }
@@ -641,7 +648,9 @@ Règles :
         "2) Exploiter les résultats web fiables.\n" +
         "3) Répondre en français clair en citant les sources réelles.";
       const forcedQuery =
-        decision.action === "respond" ? deriveFreshDataQuery(trimmedInput) : null;
+        decision.action === "respond"
+          ? deriveFreshDataQuery(trimmedInput)
+          : null;
 
       const searchQueryToUse =
         decision.action === "search" && decision.query

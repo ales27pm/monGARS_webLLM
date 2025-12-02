@@ -1,79 +1,74 @@
 import { useCallback, useRef, useState } from "react";
-import { pipeline, env } from "@xenova/transformers";
-
-type AudioPipeline = Awaited<ReturnType<typeof pipeline>>;
-
-const ASR_MODEL = "Xenova/whisper-small";
-const TTS_MODEL = "Xenova/parler-tts-mini-v1";
-
-env.allowLocalModels = true;
+import { ensurePipeline } from "./speechPipeline";
+import { useAudioPlayback } from "./useAudioPlayback";
+import { blobToFloat32AudioData } from "./speechUtils";
 
 type UseSpeechOptions = {
   onTranscription?: (text: string) => void;
 };
 
-type EnsurePipelineFn = (type: string, model: string, options?: Record<string, unknown>) => Promise<AudioPipeline>;
+const ASR_MODEL = "Xenova/whisper-small";
+const TTS_MODEL = "Xenova/parler-tts-mini-v1";
 
-const createPipelineLoader = () => {
-  const cache = new Map<string, Promise<AudioPipeline>>();
-  const ensurePipeline: EnsurePipelineFn = async (type, model, options) => {
-    const key = `${type}:${model}`;
-    if (!cache.has(key)) {
-      const device = typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
-      cache.set(
-        key,
-        pipeline(type as any, model, {
-          quantized: true,
-          device,
-          progress_callback: (status) => {
-            console.info(`[speech] ${type} loading`, status);
-          },
-          ...(options || {}),
-        }),
-      );
-    }
-    return cache.get(key)!;
-  };
-  return ensurePipeline;
-};
-
-const ensurePipeline = createPipelineLoader();
+type MediaRecorderOptions = ConstructorParameters<typeof MediaRecorder>[1];
 
 export function useSpeech(options: UseSpeechOptions = {}) {
   const { onTranscription } = options;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const {
+    getAudioContext,
+    sourceRef: ttsSourceRef,
+    resetPlayback,
+  } = useAudioPlayback();
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const getAudioContext = () => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    return audioContextRef.current;
-  };
+  const transcribeBlob = useCallback(
+    async (blob: Blob) => {
+      const asr = await ensurePipeline(
+        "automatic-speech-recognition",
+        ASR_MODEL,
+      );
+      const { audioData, sampleRate } = await blobToFloat32AudioData(
+        blob,
+        getAudioContext(),
+      );
+      const result = await asr(
+        { array: audioData, sampling_rate: sampleRate },
+        {
+          chunk_length_s: 15,
+          stride_length_s: [4, 2],
+          language: "french",
+        },
+      );
 
-  const resetTtsPlayback = () => {
-    if (ttsSourceRef.current) {
-      try {
-        ttsSourceRef.current.stop();
-      } catch (e) {
-        console.warn("Unable to stop previous TTS source", e);
+      if (typeof result.text === "string") {
+        return result.text.trim();
       }
-    }
-    ttsSourceRef.current = null;
-  };
+
+      return "";
+    },
+    [getAudioContext],
+  );
 
   const startRecording = useCallback(async () => {
+    if (isRecording || isTranscribing) {
+      return;
+    }
+
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const options: MediaRecorderOptions | undefined =
+        typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported("audio/webm")
+          ? { mimeType: "audio/webm" }
+          : undefined;
+      const recorder = new MediaRecorder(stream, options);
       chunksRef.current = [];
 
       recorder.ondataavailable = (event) => {
@@ -89,6 +84,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
         if (blob.size === 0) {
           setError("Aucun audio enregistré.");
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
 
@@ -113,34 +109,12 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       console.error("Microphone permission or initialization failed", err);
       setError("Impossible d'accéder au micro. Vérifie les permissions.");
     }
-  }, [onTranscription]);
+  }, [isRecording, isTranscribing, onTranscription, transcribeBlob]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
-  }, []);
-
-  const transcribeBlob = useCallback(async (blob: Blob) => {
-    const asr = await ensurePipeline("automatic-speech-recognition", ASR_MODEL);
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioContext = getAudioContext();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const audioData = audioBuffer.getChannelData(0);
-    const result = await asr(
-      { array: audioData, sampling_rate: audioBuffer.sampleRate },
-      {
-        chunk_length_s: 15,
-        stride_length_s: [4, 2],
-        language: "french",
-      },
-    );
-
-    if (typeof result.text === "string") {
-      return result.text.trim();
-    }
-
-    return "";
   }, []);
 
   const speak = useCallback(
@@ -151,7 +125,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       try {
         setError(null);
         setIsSpeaking(true);
-        resetTtsPlayback();
+        resetPlayback();
         const tts = await ensurePipeline("text-to-speech", TTS_MODEL);
         const output = await tts(text, {
           speaker_id: "parler-tts/multi-speaker", // default speaker embedding
@@ -159,7 +133,11 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         const audioArray = output.audio as Float32Array;
         const sampleRate = (output as any).sampling_rate || 22050;
         const audioContext = getAudioContext();
-        const buffer = audioContext.createBuffer(1, audioArray.length, sampleRate);
+        const buffer = audioContext.createBuffer(
+          1,
+          audioArray.length,
+          sampleRate,
+        );
         buffer.copyToChannel(audioArray, 0);
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
@@ -167,16 +145,18 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         ttsSourceRef.current = source;
         source.onended = () => {
           setIsSpeaking(false);
-          resetTtsPlayback();
+          resetPlayback();
         };
         source.start();
       } catch (err) {
         console.error("TTS error", err);
         setIsSpeaking(false);
-        setError("La synthèse vocale a échoué. Réessaie ou réduit la longueur du texte.");
+        setError(
+          "La synthèse vocale a échoué. Réessaie ou réduit la longueur du texte.",
+        );
       }
     },
-    [],
+    [getAudioContext, resetPlayback],
   );
 
   return {
