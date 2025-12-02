@@ -18,10 +18,20 @@ const requiredDependencies = [
 
 const missing = requiredDependencies.filter((dep) => {
   try {
+    // Try resolving the module normally. This works for packages
+    // that have a runtime entry point.
     require.resolve(dep);
     return false;
   } catch {
-    return true;
+    try {
+      // Some packages, such as type definition packages (e.g. @types/node),
+      // don't have a runtime entry point. In that case, check if the
+      // package's own package.json can be resolved.
+      require.resolve(`${dep}/package.json`);
+      return false;
+    } catch {
+      return true;
+    }
   }
 });
 
