@@ -245,9 +245,9 @@ Règles :
     return true;
   }, [addToast]);
 
-  const loadEngine = useCallback(async () => {
+  const loadEngine = useCallback(async (): Promise<MLCEngine | null> => {
     // Wait for WebGPU support check. If unsupported, abort loading.
-    if (isReloadingRef.current || engine || !(await checkWebGPU())) return;
+    if (isReloadingRef.current || engine || !(await checkWebGPU())) return null;
 
     isReloadingRef.current = true;
     setEngineStatus("loading");
@@ -304,6 +304,8 @@ Règles :
         };
         return [welcomeMessage];
       });
+
+      return newEngine;
     } catch (err: any) {
       console.error("Engine loading error:", err);
       setEngineStatus("error");
@@ -317,6 +319,7 @@ Règles :
           "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
         "error",
       );
+      return null;
     } finally {
       isReloadingRef.current = false;
     }
@@ -338,8 +341,16 @@ Règles :
           "Le moteur a été réinitialisé après une erreur WebGPU. Nouvelle tentative en cours...",
           "warning",
         );
-        await loadEngine();
-        return true;
+        try {
+          const newEngine = await loadEngine();
+          if (newEngine) {
+            return true;
+          }
+          console.error("Engine recovery failed: loadEngine did not initialize a new engine");
+        } catch (loadErr) {
+          console.error("Engine recovery failed during loadEngine:", loadErr);
+        }
+        return false;
       }
       return false;
     },
