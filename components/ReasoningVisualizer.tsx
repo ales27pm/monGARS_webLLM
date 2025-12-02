@@ -1,5 +1,5 @@
 import React from "react";
-import type { ReasoningTrace } from "../reasoning";
+import type { ScoredMemoryEntry } from "../memory";
 
 const formatEmbeddingPreview = (vector: Float32Array) => {
   if (!vector || vector.length === 0) return "vecteur vide";
@@ -10,8 +10,21 @@ const formatEmbeddingPreview = (vector: Float32Array) => {
 const formatDate = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+type ReasoningSnapshot = {
+  id: number;
+  requestedAction: "search" | "respond";
+  effectiveAction: "search" | "respond";
+  query?: string | null;
+  plan: string;
+  rationale?: string;
+  memoryContext: string;
+  memoryEnabled: boolean;
+  memoryResults: ScoredMemoryEntry[];
+  timestamp: number;
+};
+
 interface ReasoningVisualizerProps {
-  trace: ReasoningTrace | null;
+  trace: ReasoningSnapshot | null;
   onClear: () => void;
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { EmbeddingMemory, type ScoredMemoryEntry } from "./memory";
 import type { Message } from "./types";
 
@@ -11,11 +11,13 @@ export function useSemanticMemory(
   },
 ) {
   const { enabled = true, maxEntries = 64, neighbors = 4 } = options || {};
-  const [memory, setMemory] = useState(() => new EmbeddingMemory(maxEntries));
+  const memoryRef = useRef<EmbeddingMemory | null>(null);
 
-  useEffect(() => {
-    setMemory(new EmbeddingMemory(maxEntries));
-  }, [maxEntries]);
+  if (!memoryRef.current || memoryRef.current.getCapacity() !== maxEntries) {
+    memoryRef.current = new EmbeddingMemory(maxEntries);
+  }
+
+  const memory = memoryRef.current;
 
   useEffect(() => {
     if (!enabled) {

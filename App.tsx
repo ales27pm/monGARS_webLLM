@@ -19,6 +19,7 @@ import { EmptyState } from "./components/EmptyState";
 import { ToastContainer } from "./components/ToastContainer";
 import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
+import { useSemanticMemory } from "./useSemanticMemory";
 import type {
   Message,
   Config,
@@ -29,7 +30,7 @@ import type {
 } from "./types";
 import { useSemanticMemory } from "./useSemanticMemory";
 import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
-import type { ReasoningTrace } from "./reasoning";
+import type { ScoredMemoryEntry } from "./memory";
 
 declare global {
   interface Navigator {
@@ -67,6 +68,19 @@ const FRESH_DATA_PATTERNS = [
   /\b(?:aujourd'hui|today|en\s+ce\s+moment|ce\s+(?:jour|soir|matin))\b/i,
   /\b(?:heure\s+(?:actuelle|locale)|quelle\s+heure\s+est-il|current\s+time)\b/i,
 ];
+
+type ReasoningTrace = {
+  id: number;
+  requestedAction: "search" | "respond";
+  effectiveAction: "search" | "respond";
+  query?: string | null;
+  plan: string;
+  rationale?: string;
+  memoryContext: string;
+  memoryEnabled: boolean;
+  memoryResults: ScoredMemoryEntry[];
+  timestamp: number;
+};
 
 const normalizeQuery = (text: string) =>
   text
@@ -125,6 +139,12 @@ const App: React.FC = () => {
   const [reasoningTrace, setReasoningTrace] = useState<ReasoningTrace | null>(
     null,
   );
+
+  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
+    enabled: config.semanticMemoryEnabled,
+    maxEntries: config.semanticMemoryMaxEntries,
+    neighbors: config.semanticMemoryNeighbors,
+  });
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -193,16 +213,10 @@ Règles :
       semanticMemoryMaxEntries: getNumberSetting("mg_semantic_max_entries", 96),
       semanticMemoryNeighbors: getNumberSetting("mg_semantic_neighbors", 4),
       toolSearchEnabled: getBooleanSetting("mg_tool_search_enabled", true),
-      searchApiBase: normalizeSearchApiBase(
-        localStorage.getItem("mg_search_api_base") || DEFAULT_SEARCH_API_BASE,
-      ),
+      searchApiBase:
+        localStorage.getItem("mg_search_api_base") ||
+        "https://api.duckduckgo.com",
     };
-  });
-
-  const { queryMemory, recordExchange } = useSemanticMemory(messages, {
-    enabled: config.semanticMemoryEnabled,
-    maxEntries: config.semanticMemoryMaxEntries,
-    neighbors: config.semanticMemoryNeighbors,
   });
 
   const toolSpecPrompt = useMemo(
@@ -540,7 +554,7 @@ Règles :
     }
 
     try {
-      const apiBase = config.searchApiBase || DEFAULT_SEARCH_API_BASE;
+      const apiBase = config.searchApiBase || "https://api.duckduckgo.com";
       const rawUrl = `${apiBase}?q=${encodeURIComponent(query)}&format=json&no_html=1`;
       const proxiedUrl = rawUrl.startsWith("http")
         ? `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`
@@ -756,11 +770,8 @@ Règles :
         );
       }
 
-      const traceTimestamp = Date.now();
-
-      const traceTimestamp = Date.now();
       setReasoningTrace({
-        id: traceTimestamp,
+        id: Date.now(),
         requestedAction: decision.action,
         effectiveAction,
         query: searchQueryToUse,
@@ -769,7 +780,7 @@ Règles :
         memoryContext: memoryLookup.context,
         memoryEnabled: config.semanticMemoryEnabled,
         memoryResults: memoryLookup.results,
-        timestamp: traceTimestamp,
+        timestamp: Date.now(),
       });
 
       if (searchQueryToUse) {
