@@ -133,7 +133,7 @@ const promptCases: PromptCase[] = [
     ],
     toolSpecPrompt:
       "Outil search: GET /search?q=... (retourne les premiers liens).",
-    modelDecision: '{"action":"search","query":"ok","plan":"Résumé"}',
+    modelDecision: 'action: search query: ok plan: Résumé',
     expectations: {
       expectedAction: "search",
       warningSubstrings: ["Échec de parsing JSON"],
