@@ -138,6 +138,15 @@ export class EmbeddingMemory {
       .join("\n");
   }
 
+  getCapacity() {
+    return this.maxEntries;
+  }
+
+  clear() {
+    this.entries.length = 0;
+    this.cache.clear();
+  }
+
   private async embed(text: string): Promise<Float32Array> {
     const cached = this.getCachedEmbedding(text);
     if (cached) return cached;

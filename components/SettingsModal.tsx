@@ -1,17 +1,21 @@
 
 
-import React, { useState, useEffect } from 'react';
-import type { Config } from '../types';
+import React, { useState, useEffect } from "react";
+import type { Config } from "../types";
 
 interface SettingsModalProps {
   isVisible: boolean;
   onClose: () => void;
-  // FIX: Updated onSave prop type to accept the full Config, including modelId
   onSave: (config: Config) => void;
   currentConfig: Config;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isVisible, onClose, onSave, currentConfig }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isVisible,
+  onClose,
+  onSave,
+  currentConfig,
+}) => {
   const [config, setConfig] = useState(currentConfig);
 
   useEffect(() => {
@@ -24,9 +28,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isVisible, onClose
     onSave(config);
   };
   
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setConfig(prev => ({...prev, [name]: name === 'temperature' || name === 'maxTokens' ? Number(value) : value }));
+  const handleInputChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >,
+  ) => {
+    const { name, value, type, checked } = e.target as HTMLInputElement;
+    const numericFields = [
+      "temperature",
+      "maxTokens",
+      "semanticMemoryMaxEntries",
+      "semanticMemoryNeighbors",
+    ];
+
+    const nextValue =
+      type === "checkbox"
+        ? checked
+        : numericFields.includes(name)
+          ? Number(value)
+          : value;
+
+    setConfig((prev) => ({ ...prev, [name]: nextValue }));
   };
 
   return (
@@ -67,6 +89,93 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isVisible, onClose
               <span className="setting-value">{config.maxTokens}</span>
             </label>
             <input type="range" id="maxTokens" name="maxTokens" min="128" max="2048" step="128" value={config.maxTokens} onChange={handleInputChange} className="w-full" />
+          </div>
+
+          <div className="setting-group">
+            <div className="flex items-center justify-between">
+              <label className="setting-label">Mémoire vectorielle</label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="semanticMemoryEnabled"
+                  checked={config.semanticMemoryEnabled}
+                  onChange={handleInputChange}
+                  className="accent-primary-DEFAULT"
+                />
+                Activer
+              </label>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Stocke les échanges dans un index sémantique local (MiniLM) pour les recherches contextuelles rapides.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              <label htmlFor="semanticMemoryMaxEntries" className="flex justify-between items-center text-sm">
+                <span>Capacité (messages indexés)</span>
+                <span>{config.semanticMemoryMaxEntries}</span>
+              </label>
+              <input
+                type="range"
+                id="semanticMemoryMaxEntries"
+                name="semanticMemoryMaxEntries"
+                min="16"
+                max="256"
+                step="8"
+                value={config.semanticMemoryMaxEntries}
+                onChange={handleInputChange}
+                disabled={!config.semanticMemoryEnabled}
+                className="w-full"
+              />
+
+              <label htmlFor="semanticMemoryNeighbors" className="flex justify-between items-center text-sm">
+                <span>Résultats renvoyés</span>
+                <span>{config.semanticMemoryNeighbors}</span>
+              </label>
+              <input
+                type="range"
+                id="semanticMemoryNeighbors"
+                name="semanticMemoryNeighbors"
+                min="1"
+                max="12"
+                step="1"
+                value={config.semanticMemoryNeighbors}
+                onChange={handleInputChange}
+                disabled={!config.semanticMemoryEnabled}
+                className="w-full"
+              />
+            </div>
+          </div>
+
+          <div className="setting-group">
+            <div className="flex items-center justify-between">
+              <label className="setting-label">Outil de recherche web (DuckDuckGo API)</label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="toolSearchEnabled"
+                  checked={config.toolSearchEnabled}
+                  onChange={handleInputChange}
+                  className="accent-primary-DEFAULT"
+                />
+                Activer
+              </label>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Utilise la recherche instantanée (JSON) de DuckDuckGo via un proxy CORS local.
+            </p>
+            <label htmlFor="searchApiBase" className="setting-label mt-3 block">
+              Endpoint API
+            </label>
+            <input
+              type="text"
+              id="searchApiBase"
+              name="searchApiBase"
+              value={config.searchApiBase}
+              onChange={handleInputChange}
+              className="setting-input"
+              placeholder="https://api.duckduckgo.com"
+              disabled={!config.toolSearchEnabled}
+            />
           </div>
         </div>
         
