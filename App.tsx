@@ -202,11 +202,46 @@ Règles :
     }
   };
 
-  const checkWebGPU = useCallback(() => {
+  /**
+   * Check for WebGPU availability. Safari and some browsers expose
+   * `navigator.gpu` but still return `null` from `navigator.gpu.requestAdapter()`
+   * when no compatible GPU adapter is available or the page is served over an
+   * insecure context. To avoid errors from the WebLLM runtime, we probe
+   * `navigator.gpu.requestAdapter()` and only proceed if it resolves to a
+   * non‐null adapter. The function returns a promise because probing the
+   * adapter is asynchronous.
+   */
+  const checkWebGPU = useCallback(async () => {
+    // If the API is completely missing, bail out immediately.
     if (!navigator.gpu) {
       addToast(
         'WebGPU non supporté',
-        'Utilise un navigateur compatible comme Chrome 113+ ou un appareil avec WebGPU activé.',
+        'Utilise un navigateur compatible comme Chrome/Edge 113+ ou un appareil avec WebGPU activé.',
+        'error'
+      );
+      setEngineStatus('error');
+      setInitProgress({ progress: 0, text: 'WebGPU non disponible' });
+      return false;
+    }
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        // Adapter is null: either GPU is disabled/blocked or insecure context.
+        addToast(
+          'WebGPU non disponible',
+          'Impossible d’obtenir un adaptateur GPU. Vérifie que l’accélération matérielle est activée et que la page est servie via HTTPS ou localhost.',
+          'error'
+        );
+        setEngineStatus('error');
+        setInitProgress({ progress: 0, text: 'WebGPU non disponible' });
+        return false;
+      }
+    } catch (err) {
+      // In case requestAdapter() itself rejects, treat as unsupported.
+      console.warn('Error while probing WebGPU:', err);
+      addToast(
+        'WebGPU non disponible',
+        'Une erreur est survenue lors de la détection de WebGPU. Vérifie la configuration de ton navigateur.',
         'error'
       );
       setEngineStatus('error');
@@ -217,7 +252,8 @@ Règles :
   }, [addToast]);
 
   const loadEngine = async () => {
-    if (engine || !checkWebGPU()) return;
+    // Wait for WebGPU support check. If unsupported, abort loading.
+    if (engine || !(await checkWebGPU())) return;
 
     setEngineStatus('loading');
     setInitProgress({ progress: 0, text: 'Initialisation du moteur...' });
