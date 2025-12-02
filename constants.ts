@@ -18,6 +18,6 @@ export function getModelLibUrl(modelId: string): string {
     );
     return `${MODEL_LIBRARY_BASE_URL}${fallback.wasmFilename}`;
   }
-
-  return `${MODEL_LIBRARY_BASE_URL}${metadata.wasmFilename}`;
-}
+    baseUrl +
+    (modelLibs[modelId] || modelLibs["Qwen2.5-0.5B-Instruct-q4f32_1-MLC"])
+  );
