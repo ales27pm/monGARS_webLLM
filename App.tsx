@@ -36,9 +36,10 @@ import type {
   MLCEngine,
 } from "./types";
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
-import { buildAnswerHistory, decideAction, MODEL_ID } from "./decisionEngine";
+import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine";
 import { getModelShortLabel } from "./models";
 import type { ScoredMemoryEntry } from "./memory";
+import { rebuildContextWithExternalEvidence } from "./contextEngine";
 
 declare global {
   interface Navigator {
@@ -46,36 +47,7 @@ declare global {
   }
 }
 
-const searchTool = {
-  name: "search_the_web",
-  description:
-    "Useful when you need to look up current information, news, or factual data that may change over time. Use only for questions that require up-to-date information.",
-  parameters: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "The search query to use. Should be concise and specific.",
-      },
-    },
-    required: ["query"],
-  },
-};
-
-const formatToolSpecPrompt = (searchEnabled: boolean, apiBase: string) =>
-  searchEnabled
-    ? `- ${searchTool.name}: ${searchTool.description} (API ${apiBase})
-  params schema: ${JSON.stringify(searchTool.parameters)}`
-    : "- Recherche web désactivée par l'utilisateur (aucun appel réseau autorisé).";
-
 type Source = { title: string; url: string };
-
-const FRESH_DATA_PATTERNS = [
-  /\b(?:met[eé]o|m[eé]t[eé]o|temp[eé]rature|forecast|pr[eé]vision)s?\b/i,
-  /\b(?:actualit[eé]s?|news|derni[eè]res?\s+(?:infos?|nouvelles?))\b/i,
-  /\b(?:aujourd'hui|today|en\s+ce\s+moment|ce\s+(?:jour|soir|matin))\b/i,
-  /\b(?:heure\s+(?:actuelle|locale)|quelle\s+heure\s+est-il|current\s+time)\b/i,
-];
 
 type ReasoningTrace = {
   id: number;
@@ -88,19 +60,6 @@ type ReasoningTrace = {
   memoryEnabled: boolean;
   memoryResults: ScoredMemoryEntry[];
   timestamp: number;
-};
-
-const normalizeQuery = (text: string) =>
-  text
-    .replace(/\s+/g, " ")
-    .replace(/[?!.]+$/, "")
-    .trim()
-    .slice(0, 180);
-
-const deriveFreshDataHint = (text: string) => {
-  if (!text) return null;
-  const match = FRESH_DATA_PATTERNS.find((pattern) => pattern.test(text));
-  return match ? normalizeQuery(text) : null;
 };
 
 const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
@@ -233,9 +192,12 @@ Règles :
     neighbors: config.semanticMemoryNeighbors,
   });
 
-  const toolSpecPrompt = useMemo(
-    () => formatToolSpecPrompt(config.toolSearchEnabled, config.searchApiBase),
-    [config.searchApiBase, config.toolSearchEnabled],
+  const semanticMemoryClient = useMemo(
+    () => ({
+      enabled: config.semanticMemoryEnabled,
+      search: (query: string, neighbors: number) => queryMemory(query, neighbors),
+    }),
+    [config.semanticMemoryEnabled, queryMemory],
   );
 
   const lastAssistantMessage = (() => {
@@ -744,42 +706,19 @@ Règles :
 
     try {
       const conversationForDecision = [...messages, userMessage];
-      const memoryLookup = await queryMemory(trimmedInput);
-      const memoryPrefix = memoryLookup.context
-        ? `Mémoire sémantique pertinente :\n${memoryLookup.context}\n\n`
-        : "";
-      const freshDataHint = deriveFreshDataHint(trimmedInput);
-      const decision = await decideAction(
+      const decision = await decideNextAction(
         currentEngine,
-        trimmedInput,
+        userMessage,
         conversationForDecision,
-        toolSpecPrompt,
-        abortControllerRef.current?.signal,
-        { freshDataHint },
+        config,
+        semanticMemoryClient,
       );
 
-      const decisionDiagnostics = decision.diagnostics;
-
-      if (decision.warnings.length > 0) {
-        console.warn("Avertissements décisionnels", decision.warnings);
-        addToast(
-          "Raisonnement à vérifier",
-          decision.warnings.slice(0, 3).join(" | "),
-          "warning",
-        );
-      }
-
-      const decisionPlan =
-        decision.plan?.trim() || "Réponse directe structurée";
       const searchAllowed = config.toolSearchEnabled;
-      const searchQueryToUse =
-        searchAllowed && decision.action === "search" && decision.query
-          ? decision.query
-          : null;
-      const effectiveAction = searchQueryToUse ? "search" : "respond";
-      let finalAiResponse = "";
-
-      let lastAnswerHistory: { role: string; content: string }[] | null = null;
+      const shouldSearch =
+        searchAllowed && decision.action === "search" && !!decision.query;
+      let externalEvidence: string | null = null;
+      let searchSources: Source[] = [];
 
       if (decision.action === "search" && !decision.query) {
         console.warn("Décision de recherche sans requête fournie", decision);
@@ -798,21 +737,8 @@ Règles :
         );
       }
 
-      setReasoningTrace({
-        id: Date.now(),
-        requestedAction: decision.action,
-        effectiveAction,
-        query: searchQueryToUse,
-        plan: decisionPlan,
-        rationale: decision.rationale,
-        memoryContext: memoryLookup.context,
-        memoryEnabled: config.semanticMemoryEnabled,
-        memoryResults: memoryLookup.results,
-        timestamp: Date.now(),
-      });
-
-      if (searchQueryToUse) {
-        const query = searchQueryToUse;
+      if (shouldSearch) {
+        const query = decision.query as string;
         setSearchQuery(query);
 
         const searchResult = await performWebSearch(
@@ -820,57 +746,47 @@ Règles :
           abortControllerRef.current?.signal,
         );
         setSearchQuery(null);
+        externalEvidence = searchResult.content;
+        searchSources = searchResult.sources;
+      }
 
-        const historyForAnswer = buildAnswerHistory(
-          decisionPlan,
-          config,
-          conversationForDecision,
-          `${memoryPrefix}${trimmedInput}\n\n` +
-            `Résultats de la recherche pour "${query}":\n${searchResult.content}\n\n` +
-            `Applique le plan ci-dessus. Si les données sont insuffisantes, explique pourquoi et propose des pistes concrètes.`,
+      const contextForAnswer = shouldSearch
+        ? rebuildContextWithExternalEvidence(decision.context, externalEvidence)
+        : decision.context;
+
+      setReasoningTrace({
+        id: Date.now(),
+        requestedAction: decision.action,
+        effectiveAction: shouldSearch ? "search" : "respond",
+        query: decision.query,
+        plan: decision.plan,
+        rationale: decision.rationale,
+        memoryContext: contextForAnswer.slices.memorySummary || "",
+        memoryEnabled: config.semanticMemoryEnabled,
+        memoryResults:
+          (contextForAnswer.slices.memoryResults as ScoredMemoryEntry[] | undefined) ||
+          [],
+        timestamp: Date.now(),
+      });
+
+      const finalMessages = contextForAnswer.messagesForAnswer;
+      let finalAiResponse = await streamAnswer(
+        finalMessages,
+        aiMessagePlaceholder.id,
+      );
+
+      if (shouldSearch && searchSources.length > 0) {
+        const uniqueSources = Array.from(
+          new Map(searchSources.map((s) => [s.url, s])).values(),
         );
-
-        lastAnswerHistory = historyForAnswer;
-
-        finalAiResponse = await streamAnswer(
-          historyForAnswer,
-          aiMessagePlaceholder.id,
-        );
-        if (searchResult.sources.length > 0) {
-          const uniqueSources = Array.from(
-            new Map(searchResult.sources.map((s) => [s.url, s])).values(),
-          );
-          const sourcesText =
-            "\n\nSources utilisées:\n" +
-            uniqueSources
-              .map((src) => `- ${src.title} (${src.url})`)
-              .join("\n");
-          finalAiResponse += sourcesText;
-        }
-      } else {
-        const directResponse = decision.response?.trim();
-        if (directResponse) {
-          finalAiResponse = directResponse;
-        } else {
-          lastAnswerHistory = buildAnswerHistory(
-            decisionPlan,
-            config,
-            conversationForDecision,
-            `${memoryPrefix}${trimmedInput}`,
-          );
-
-          finalAiResponse = await streamAnswer(
-            lastAnswerHistory,
-            aiMessagePlaceholder.id,
-          );
-        }
+        const sourcesText =
+          "\n\nSources utilisées:\n" +
+          uniqueSources.map((src) => `- ${src.title} (${src.url})`).join("\n");
+        finalAiResponse += sourcesText;
       }
 
       if (!finalAiResponse.trim()) {
-        console.warn("Réponse finale vide, déclenchement d'une relance.", {
-          decisionWarnings: decision.warnings,
-          decisionDiagnostics,
-        });
+        console.warn("Réponse finale vide, déclenchement d'une relance.");
 
         addToast(
           "Réponse manquante",
@@ -878,17 +794,15 @@ Règles :
           "warning",
         );
 
-        const recoveryHistory =
-          lastAnswerHistory ||
-          buildAnswerHistory(
-            decisionPlan,
-            config,
-            conversationForDecision,
-            `${memoryPrefix}${trimmedInput}`,
-          );
+        const fallbackMessages = buildAnswerHistory(
+          decision.plan,
+          config,
+          conversationForDecision,
+          userMessage.content || "",
+        );
 
         finalAiResponse = await streamAnswer(
-          recoveryHistory,
+          fallbackMessages,
           aiMessagePlaceholder.id,
         );
 

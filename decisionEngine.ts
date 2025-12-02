@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
+import { buildContext } from "./contextEngine";
+import type {
+  ContextBuildResult,
+  SemanticMemoryClient,
+} from "./contextEngine";
 import type { Config, Message, MLCEngine } from "./types";
 import { DEFAULT_MODEL_ID } from "./models";
 
@@ -557,6 +562,15 @@ export const normalizeDecision = (raw: string): DecisionResult => {
   return { ...result, warnings, diagnostics } satisfies DecisionResult;
 };
 
+export type NextActionDecision = {
+  action: "respond" | "search";
+  query: string | null;
+  plan: string;
+  rationale: string;
+  debugContext: ContextBuildResult["slices"]["debug"];
+  context: ContextBuildResult;
+};
+
 export type DecisionHints = {
   freshDataHint?: string | null;
 };
@@ -605,6 +619,112 @@ export const buildAnswerHistory = (
   })),
   { role: "user", content: userContent },
 ];
+
+const normalizeModelJsonOutput = (output: unknown): string => {
+  const text = typeof output === "string" ? output : JSON.stringify(output ?? "");
+
+  let cleaned = text.trim();
+
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    cleaned = fenceMatch[1].trim();
+  }
+
+  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+    const firstBrace = cleaned.indexOf("{");
+    const firstBracket = cleaned.indexOf("[");
+    let startIndex = -1;
+
+    if (firstBrace !== -1 && firstBracket !== -1) {
+      startIndex = Math.min(firstBrace, firstBracket);
+    } else if (firstBrace !== -1) {
+      startIndex = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
+    }
+
+    if (startIndex !== -1) {
+      cleaned = cleaned.slice(startIndex);
+    }
+  }
+
+  const objectMatch = cleaned.match(/(\{[\s\S]*\})/);
+  const arrayMatch = cleaned.match(/(\[[\s\S]*\])/);
+  const candidate = objectMatch?.[1] ?? arrayMatch?.[1];
+
+  return (candidate ?? cleaned).trim();
+};
+
+const normalizeNextActionDecision = (
+  raw: unknown,
+): { action: "respond" | "search"; query: string | null; plan: string; rationale: string } => {
+  let parsed: any;
+
+  try {
+    const normalized = normalizeModelJsonOutput(raw);
+    parsed = JSON.parse(normalized);
+  } catch {
+    parsed = null;
+  }
+
+  const action = parsed?.action === "search" ? "search" : "respond";
+  const query = typeof parsed?.query === "string" ? parsed.query.trim() : null;
+  const plan =
+    typeof parsed?.plan === "string" && parsed.plan.trim()
+      ? parsed.plan.trim()
+      : "1) Analyser la question\n2) Identifier les informations utiles\n3) Répondre clairement";
+  const rationale =
+    typeof parsed?.rationale === "string" && parsed.rationale.trim()
+      ? parsed.rationale.trim()
+      : action === "search"
+      ? "Recherche nécessaire pour données fraîches ou vérification."
+      : "Réponse directe suffisante avec le contexte actuel.";
+
+  return { action, query: action === "search" ? query : null, plan, rationale };
+};
+
+export async function decideNextActionFromMessages(
+  engine: MLCEngine,
+  messagesForPlanning: { role: string; content: string }[],
+): Promise<{ action: "respond" | "search"; query: string | null; plan: string; rationale: string }> {
+  const decisionCompletion = await engine.chat.completions.create({
+    messages: messagesForPlanning,
+    temperature: 0.1,
+    max_tokens: 512,
+    stream: false,
+  });
+
+  const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
+  return normalizeNextActionDecision(raw);
+}
+
+export async function decideNextAction(
+  engine: MLCEngine,
+  userMessage: Message,
+  history: Message[],
+  config: Config,
+  memory: SemanticMemoryClient | null,
+  externalEvidence?: string | null,
+): Promise<NextActionDecision> {
+  const context = await buildContext(engine, {
+    userMessage,
+    history,
+    config,
+    memory,
+    externalEvidence: externalEvidence ?? null,
+  });
+
+  const normalizedDecision = await decideNextActionFromMessages(
+    engine,
+    context.messagesForPlanning,
+  );
+
+  return {
+    ...normalizedDecision,
+    debugContext: context.slices.debug,
+    context,
+  } satisfies NextActionDecision;
+}
 
 export async function decideAction(
   engine: MLCEngine,
