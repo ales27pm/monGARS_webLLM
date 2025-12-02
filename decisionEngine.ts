@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
 import type { Config, Message, MLCEngine } from "./types";
+import { DEFAULT_MODEL_ID } from "./models";
 
-export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
 export const ANSWER_GUARDRAILS = `Suis le plan, reste fidèle aux faits, aucune source inventée.
@@ -44,7 +45,9 @@ export const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
+      "\n",
+    );
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
