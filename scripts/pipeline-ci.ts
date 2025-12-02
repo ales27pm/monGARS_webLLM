@@ -6,6 +6,7 @@ import {
   buildDecisionMessages,
   normalizeDecision,
 } from "../decisionEngine";
+import type { DecisionResult } from "../decisionEngine";
 import type { Config, Message } from "../types";
 
 interface PromptCaseExpectation {
@@ -446,7 +447,7 @@ const nextRoundPrompts: NextPrompt[] = [
 
 const evaluateExpectations = (
   expectations: PromptCaseExpectation,
-  decision: ReturnType<typeof normalizeDecision>,
+  decision: DecisionResult,
 ): string[] => {
   const mismatches: string[] = [];
 
