@@ -166,9 +166,7 @@ class MonGarsBrainService {
         this.messages = [...this.messages, assistantMessage];
         this.broadcast();
 
-        for await (const chunk of completion.stream) {
 
-        let received = false;
         let received = false;
         for await (const chunk of completion.stream) {
           if (chunk && chunk.length > 0) {
@@ -177,7 +175,6 @@ class MonGarsBrainService {
             this.broadcast();
           }
         }
-        // If no content was received, remove the placeholder assistant message.
         if (!received) {
           this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
         }
