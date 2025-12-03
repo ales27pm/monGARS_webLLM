@@ -394,15 +394,21 @@ Règles :
         // Ensure any active generation is cancelled before reset
         try {
           abortControllerRef.current?.abort();
-        } catch {}
-        try {
-          await webLLMService.reset();
-        } catch (disposeErr) {
-          console.warn("Error while disposing engine:", disposeErr);
-        } finally {
-          disposeInflightRef.current = null;
-        }
-      })();
+    if (!disposeInflightRef.current) {
+      const current = await webLLMService.getCurrentEngine().catch(() => null);
+      if (!current) {
+        // Nothing to dispose; ensure ref is cleared and return
+        disposeInflightRef.current = Promise.resolve();
+      } else {
+        disposeInflightRef.current = webLLMService
+          .reset()
+          .catch((disposeErr) => {
+            console.warn("Error while disposing engine:", disposeErr);
+          })
+          .finally(() => {
+            disposeInflightRef.current = null;
+          });
+      }
     }
     await disposeInflightRef.current;
   }, []);
