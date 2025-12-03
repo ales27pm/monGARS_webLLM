@@ -21,6 +21,19 @@ const buildFallbackSearchQuery = (
   return normalized.slice(0, maxLength);
 };
 
+const extractQuestionForFallback = (content?: string | null) => {
+  if (!content) return null;
+
+  const marker = "[QUESTION UTILISATEUR]";
+  const markerIndex = content.indexOf(marker);
+  const candidate =
+    markerIndex >= 0 ? content.slice(markerIndex + marker.length) : content;
+
+  const questionOnly = candidate.split(/\n\s*Tâche:/)[0] ?? candidate;
+
+  return questionOnly.trim();
+};
+
 const SAFETY_INTENT_CHECK =
   "Vérifie sécurité/intention : réponds aux sujets informatifs grand public (ex. chiens de traîneau, météo locale, fonctionnement d'un produit courant) quand aucune action nuisible n'est demandée; refuse clairement si l'utilisateur cherche à fabriquer/utiliser des armes, malwares, contournements de sécurité ou toute aide dangereuse.";
 
@@ -381,45 +394,88 @@ const normalizeDecisionCore = (
     return { result, meta };
   }
 
-  const fallbackAction = /search/i.test(raw) ? "search" : "respond";
+  const actionMatch = raw.match(/action\s*[:=]\s*"?(search|respond)"?/i);
+  const actionFromText = actionMatch?.[1]?.toLowerCase() as
+    | "search"
+    | "respond"
+    | undefined;
+
   const fallbackQueryMatch = raw.match(/query\s*[:=]\s*"?([^"}]+)"?/i);
   const fallbackResponseMatch = raw.match(
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
   );
 
+  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
+  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
+
+  const normalizedFallbackPlan = normalizePlan(fallbackPlan);
+  const normalizedFallbackRationale = fallbackRationale
+    ? stripListPrefix(fallbackRationale)
+    : undefined;
+
+  const planSuggestedAction = detectActionHint(fallbackPlan);
+  const rationaleSuggestedAction = detectActionHint(fallbackRationale);
+
+  const hasFallbackQuery = !!fallbackQueryMatch?.[1]?.trim();
+  const hasFallbackResponse = !!fallbackResponseMatch?.[1]?.trim();
+  const hintedAction = planSuggestedAction || rationaleSuggestedAction;
+
+  const fallbackAction: "search" | "respond" =
+    actionFromText === "search" || actionFromText === "respond"
+      ? actionFromText
+      : hasFallbackQuery && !hasFallbackResponse
+        ? "search"
+        : hasFallbackResponse && !hasFallbackQuery
+          ? "respond"
+          : hintedAction === "search" || hintedAction === "respond"
+            ? hintedAction
+            : hasFallbackQuery
+              ? "search"
+              : "search";
+
+  const actionFlip: NormalizationMeta["actionFlip"] =
+    actionFromText && actionFromText !== fallbackAction
+      ? actionFromText === "search"
+        ? "searchToRespond"
+        : "respondToSearch"
+      : undefined;
+
   const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
-    plan: normalizePlan(),
-    rationale: "Fallback décision non structurée.",
+    plan: normalizedFallbackPlan,
+    rationale:
+      normalizedFallbackRationale ||
+      (fallbackAction === "search"
+        ? "JSON invalide : bascule vers la recherche avec sauvegarde des champs disponibles."
+        : "JSON invalide : réponse directe issue de la sortie non structurée."),
     response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies Omit<DecisionResult, "warnings">;
-
-  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
-  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
 
   const meta: NormalizationMeta = {
     raw,
     source: "fallback",
     parsingIssues: decision.success ? [] : decision.error.issues,
-    hadPlan: false,
-    hadRationale: false,
+    providedStepCount: fallbackPlan ? countPlanSteps(normalizedFallbackPlan) : undefined,
+    planReformatted: !!fallbackPlan && fallbackPlan.trim() !== normalizedFallbackPlan,
+    hadPlan: !!fallbackPlan?.trim(),
+    hadRationale: !!normalizedFallbackRationale,
+    actionBeforeSwitch: actionFromText,
     actionAfterSwitch: fallbackAction as "search" | "respond",
     finalAction: fallbackAction as "search" | "respond",
+    actionFlip,
     hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
     hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
-    responseMissing:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    responseMissing: fallbackAction === "respond" && !hasFallbackResponse,
     responseMissingReason:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim()
+      fallbackAction === "respond" && !hasFallbackResponse
         ? "Réponse absente dans la sortie non structurée du modèle."
         : undefined,
-    fallbackQueryMissing:
-      fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
+    fallbackQueryMissing: fallbackAction === "search" && !hasFallbackQuery,
     fallbackResponseMissing:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
-    planSuggestedAction: detectActionHint(fallbackPlan),
-    rationaleSuggestedAction: detectActionHint(fallbackRationale),
+      fallbackAction === "respond" && !hasFallbackResponse,
+    planSuggestedAction,
+    rationaleSuggestedAction,
   };
 
   return { result, meta };
@@ -719,6 +775,7 @@ export async function decideNextActionFromMessages(
     .find((msg) => msg.role === "user");
 
   const planningContent = planningUserMessage?.content;
+  const planningQuestion = extractQuestionForFallback(planningContent);
   const planningHistory = messagesForPlanning
     .slice(-MAX_CONTEXT_MESSAGES)
     .map((msg) => ({ role: msg.role, content: msg.content }));
@@ -750,7 +807,7 @@ export async function decideNextActionFromMessages(
   let query = normalized.action === "search" ? normalizedQuery || null : null;
 
   if ((normalized.action === "search" && !query) || searchWasFlipped) {
-    const fallbackQuery = buildFallbackSearchQuery(planningContent);
+    const fallbackQuery = buildFallbackSearchQuery(planningQuestion);
     if (fallbackQuery) {
       query = fallbackQuery;
       action = "search";
