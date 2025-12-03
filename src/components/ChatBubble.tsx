@@ -18,7 +18,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
         },
       ]}
     >
-      <Text style={[styles.text, { color: isUser ? "#0b0d12" : palette.text }]}>{message.content}</Text>
+      <Text style={[styles.text, { color: isUser ? "white" : palette.text }]}>{message.content}</Text>
       <Text style={styles.meta}>{isUser ? "Toi" : "Assistant"}</Text>
     </View>
   );
