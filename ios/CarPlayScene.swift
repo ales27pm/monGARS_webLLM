@@ -5,8 +5,8 @@ class CarPlayScene: CPListTemplate {
     private static let assistantMessage = "MonGARS CarPlay entrypoint"
 
     init() {
-        let textTemplate = CPMessageListItem(text: Self.assistantMessage, trailingText: nil)
-        let section = CPMessageListSection(messages: [textTemplate])
+        let item = CPListItem(text: Self.assistantMessage, detailText: nil)
+        let section = CPListSection(items: [item])
         super.init(title: Self.assistantMessage, sections: [section])
         self.automaticallyHidesNavigationBar = false
         self.leadingNavigationBarButtons = []
