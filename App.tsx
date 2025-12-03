@@ -40,6 +40,7 @@ import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine
 import { getModelShortLabel } from "./models";
 import { rebuildContextWithExternalEvidence } from "./contextEngine";
 import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
+import { appendReasoningLog } from "./reasoningLog";
 import { type ToolSource } from "./toolClients";
 import { performExternalTool, type ExternalToolResult } from "./externalTools";
 import { mergeSourcesByUrl } from "./sourcesUtils";
@@ -816,6 +817,21 @@ Règles :
             "Désolé, je n'ai pas pu générer de réponse. Veuillez reformuler votre question.";
         }
       }
+
+      appendReasoningLog({
+        id: aiMessagePlaceholder.id,
+        timestamp: Date.now(),
+        userMessage: userMessage.content || "",
+        action: decision.action,
+        query: decision.query,
+        plan: decision.plan,
+        rationale: decision.rationale,
+        notes: decision.notes,
+        diagnostics: decision.diagnostics,
+        trace: decision.trace,
+        finalResponse: finalAiResponse,
+        searchUsed: shouldSearch,
+      });
 
       let updatedMessages: Message[] | null = null;
       setMessages((prev) => {
