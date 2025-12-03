@@ -664,34 +664,6 @@ const normalizeModelJsonOutput = (output: unknown): string => {
   return (candidate ?? cleaned).trim();
 };
 
-const normalizeNextActionDecision = (
-  raw: unknown,
-): { action: "respond" | "search"; query: string | null; plan: string; rationale: string } => {
-  let parsed: any;
-
-  try {
-    const normalized = normalizeModelJsonOutput(raw);
-    parsed = JSON.parse(normalized);
-  } catch {
-    parsed = null;
-  }
-
-  const action = parsed?.action === "search" ? "search" : "respond";
-  const query = typeof parsed?.query === "string" ? parsed.query.trim() : null;
-  const plan =
-    typeof parsed?.plan === "string" && parsed.plan.trim()
-      ? parsed.plan.trim()
-      : "1) Analyser la question\n2) Identifier les informations utiles\n3) Répondre clairement";
-  const rationale =
-    typeof parsed?.rationale === "string" && parsed.rationale.trim()
-      ? parsed.rationale.trim()
-      : action === "search"
-      ? "Recherche nécessaire pour données fraîches ou vérification."
-      : "Réponse directe suffisante avec le contexte actuel.";
-
-  return { action, query: action === "search" ? query : null, plan, rationale };
-};
-
 export async function decideNextActionFromMessages(
   engine: MLCEngine,
   messagesForPlanning: { role: string; content: string }[],
