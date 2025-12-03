@@ -106,14 +106,7 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
             </button>
           </div>
 
-              const next = queuedTranscripts[0];
-              try {
-                await onSend(next);
-                setQueuedTranscripts((prev) => prev.slice(1));
-              } catch (err) {
-                console.error("Failed to send transcript from queue:", err);
-                // The transcript is not removed from the queue, allowing for a retry.
-              }
+              {/* Removed erroneous inline queue consumption block. Queue handling is managed by the hook. */}
             }, [isGenerating, onSend, queuedTranscripts]);
             <div className="relative flex flex-col items-center gap-6">
               <div className="relative w-44 h-44 flex items-center justify-center">
