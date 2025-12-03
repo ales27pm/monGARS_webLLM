@@ -501,24 +501,21 @@ Les blocs de contexte fournis sont:
 
   /* -------------------- 2) History selection ----------------------- */
 
-  const {
-    messages: conversationMessages,
-    summary: conversationSummary,
-    truncated: truncatedHistory,
-  } = await buildConversationSliceWithSummary(
-    engine,
-    history,
-    userText,
-    effectiveBudget,
-  );
-
-  /* -------------------- 3) Semantic memory ------------------------- */
-
-  const {
-    summary: memorySummary,
-    results: memoryResults,
-    hitCount: memoryHitCount,
-  } = await buildMemorySlice(engine, memory, userText);
+  const [
+    {
+      messages: conversationMessages,
+      summary: conversationSummary,
+      truncated: truncatedHistory,
+    },
+    {
+      summary: memorySummary,
+      results: memoryResults,
+      hitCount: memoryHitCount,
+    },
+  ] = await Promise.all([
+    buildConversationSliceWithSummary(engine, history, userText, effectiveBudget),
+    buildMemorySlice(engine, memory, userText),
+  ]);
 
   /* -------------------- 4) External context ------------------------ */
 
