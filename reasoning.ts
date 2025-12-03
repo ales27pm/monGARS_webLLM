@@ -55,7 +55,7 @@ export interface ReasoningTrace {
  * Helper to create a new ReasoningTrace from scratch.
  * Keeps all the wiring and defaults in one place.
  */
-export function createReasoningTrace(params: {
+export interface ReasoningTraceParams {
   id: number;
   requestedAction: RequestedAction;
   effectiveAction: EffectiveAction;
@@ -65,10 +65,12 @@ export function createReasoningTrace(params: {
   partialResponse?: string | null;
   memoryEnabled: boolean;
   memoryResults?: ScoredMemoryEntry[];
-  memoryContextSummary?: string;
+  memoryContextSummary?: string | null;
   usedExternalTool: boolean;
   notes?: string[];
-}): ReasoningTrace {
+}
+
+export function createReasoningTrace(params: ReasoningTraceParams): ReasoningTrace {
   return {
     id: params.id,
     requestedAction: params.requestedAction,
