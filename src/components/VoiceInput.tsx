@@ -34,7 +34,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
         background:
           "radial-gradient(60% 60% at 50% 50%, rgba(255,255,255,0.04) 0%, transparent 60%)",
       }}
-      aria-hidden
+      aria-hidden="true"
     />
     <div
       style={{
@@ -46,7 +46,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
         backgroundSize: "25px 25px, 25px 25px",
         opacity: 0.25,
       }}
-      aria-hidden
+      aria-hidden="true"
     />
     <div
       style={{
