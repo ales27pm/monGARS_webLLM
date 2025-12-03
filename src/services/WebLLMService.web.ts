@@ -63,18 +63,17 @@ class WebBackend implements MonGarsEngine {
         content: (message.content ?? "").toString(),
       }));
 
+    let finalHistory = normalizedHistory;
     if (systemPrompt) {
-      const first = normalizedHistory[0];
-      if (!first || first.role !== "system") {
-        return [
-          { role: "system", content: systemPrompt },
-          ...normalizedHistory,
-        ];
+      if (finalHistory.length > 0 && finalHistory[0].role === "system") {
+        // Replace existing system prompt if a new one is provided
+        finalHistory[0].content = systemPrompt;
+      } else {
+        // Prepend system prompt if none exists
+        finalHistory.unshift({ role: "system", content: systemPrompt });
       }
-      return normalizedHistory;
     }
-
-    return normalizedHistory;
+    return finalHistory;
   }
 
   async completeChat(
