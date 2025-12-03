@@ -167,19 +167,29 @@ class MonGarsBrainService {
         this.broadcast();
 
         for await (const chunk of completion.stream) {
-          const lastIndex = this.messages.length - 1;
-          const updatedMessage = { ...this.messages[lastIndex], content: this.messages[lastIndex].content + chunk };
-          this.messages = [...this.messages.slice(0, lastIndex), updatedMessage];
-          this.broadcast();
+
+        let received = false;
+        for await (const chunk of completion.stream) {
+          if (chunk && chunk.length > 0) {
+            received = true;
+            assistantMessage.content += chunk;
+            this.broadcast();
+          }
+        }
+        // If no content was received, remove the placeholder assistant message.
+        if (!received) {
+          this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
         }
       } else {
         const sanitized = (completion.text ?? "").trim();
-        const assistantMessage: Message = {
-          id: nextId(),
-          role: "assistant",
-          content: sanitized,
-        };
-        this.messages = [...this.messages, assistantMessage];
+        if (sanitized.length > 0) {
+          const assistantMessage: Message = {
+            id: nextId(),
+            role: "assistant",
+            content: sanitized,
+          };
+          this.messages = [...this.messages, assistantMessage];
+        }
       }
 
       // Minimal reasoning trace – can be replaced by a richer pipeline later.
