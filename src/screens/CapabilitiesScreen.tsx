@@ -1,53 +1,60 @@
 import React from "react";
-import { View, FlatList, StyleSheet, Text } from "react-native";
 import CapabilityCard from "../components/CapabilityCard";
 import { palette } from "../theme";
 
 const capabilities = [
   {
-    key: "1",
-    title: "Inference locale rapide",
-    description: "Lance WebLLM sur l'appareil avec détection WebGPU/WebGL et bascule CPU si besoin.",
-    badge: "Performance",
+    title: "LLM local WebLLM",
+    description: "Génération de texte directement dans le navigateur via WebGPU avec fallback CPU.",
+    badge: "On-device",
   },
   {
-    key: "2",
-    title: "Vie privée garantie",
-    description: "Aucune donnée envoyée au cloud. Tout reste sur mobile, desktop ou TV.",
-    badge: "Confidentialité",
+    title: "Mémoire sémantique",
+    description: "Indexation locale des échanges pour retrouver le contexte pertinent (bientôt activé ici).",
   },
   {
-    key: "3",
-    title: "Multimodal & mains libres",
-    description: "Texte, voix, télécommande TV ou CarPlay: l'UI s'adapte à l'entrée.",
-    badge: "Accessibilité",
+    title: "Mode voix",
+    description: "Capture micro, transcription et réponses parlées avec effets visuels adaptatifs.",
   },
   {
-    key: "4",
-    title: "Visualisation du raisonnement",
-    description: "Affiche les étapes de réflexion pour auditer les réponses complexes.",
-    badge: "Transparence",
+    title: "Raisonnement traçable",
+    description: "Visualisation des étapes de décision pour expliquer les réponses et les appels outils.",
   },
 ];
 
-const CapabilitiesScreen: React.FC = () => (
-  <View style={styles.container}>
-    <Text style={styles.header}>Forces de l'assistant</Text>
-    <Text style={styles.subheader}>Optimisé pour mobile, TV, desktop et web avec thèmes sombres modernes.</Text>
-    <FlatList
-      data={capabilities}
-      renderItem={({ item }) => <CapabilityCard capability={item} />}
-      keyExtractor={(item) => item.key}
-      contentContainerStyle={styles.list}
-    />
-  </View>
-);
+type Props = { navigation: { navigate: (screen: string) => void } };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.background, padding: 12 },
-  header: { color: palette.text, fontSize: 22, fontWeight: "800", marginBottom: 4 },
-  subheader: { color: palette.muted, marginBottom: 12 },
-  list: { paddingBottom: 8 },
-});
+const CapabilitiesScreen: React.FC<Props> = () => (
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      color: palette.text,
+      maxWidth: 1000,
+      margin: "0 auto",
+      width: "100%",
+    }}
+  >
+    <div>
+      <div style={{ fontSize: 24, fontWeight: 800 }}>Capacités</div>
+      <div style={{ color: palette.muted }}>
+        Comprends ce que Mon Gars peut faire aujourd'hui, optimisé pour le navigateur.
+      </div>
+    </div>
+    <div
+      style={{
+        display: "grid",
+        gap: 12,
+        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+        width: "100%",
+      }}
+    >
+      {capabilities.map((capability) => (
+        <CapabilityCard key={capability.title} capability={capability} />
+      ))}
+    </div>
+  </div>
+);
 
 export default CapabilitiesScreen;

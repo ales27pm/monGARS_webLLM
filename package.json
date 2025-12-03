@@ -9,6 +9,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest",
+    "tauri:icons": "node scripts/prepare-icons.mjs",
+    "tauri:prepare": "npm run tauri:icons && npm run build",
     "ci:pipeline": "tsx scripts/pipeline-ci.ts"
   },
   "dependencies": {
@@ -20,11 +23,14 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^26.0.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^3.0.5"
   }
 }

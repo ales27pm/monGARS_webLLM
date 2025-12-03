@@ -1,12 +1,12 @@
-import { detectBestGpuBackend as detectNativeBestGpuBackend } from "./GpuService.native";
-import { detectBestGpuBackend as detectWebBestGpuBackend } from "./GpuService.web";
-import type { GpuCheckResult } from "./GpuService.types";
+import { detectGpuMode as detectNativeGpuMode } from "./GpuService.native";
+import { detectGpuMode as detectWebGpuMode } from "./GpuService.web";
+import type { GpuMode } from "./GpuService.types";
 
 const isWebRuntime = typeof document !== "undefined" || typeof window !== "undefined";
 
-export type { GpuCheckResult } from "./GpuService.types";
+export type { GpuMode } from "./GpuService.types";
 
-export const detectBestGpuBackend = async (): Promise<GpuCheckResult> => {
-  const detect = isWebRuntime ? detectWebBestGpuBackend : detectNativeBestGpuBackend;
+export const detectGpuMode = async (): Promise<GpuMode> => {
+  const detect = isWebRuntime ? detectWebGpuMode : detectNativeGpuMode;
   return detect();
 };

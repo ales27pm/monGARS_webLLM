@@ -1,1 +1,1 @@
-export type GpuCheckResult = "webgpu" | "webgl" | "canvas" | "none";
+export type GpuMode = "webgpu" | "webgl2" | "webgl" | "none";

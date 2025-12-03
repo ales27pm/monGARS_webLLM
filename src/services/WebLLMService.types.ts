@@ -1,10 +1,37 @@
-import type { Message } from "../context/ChatContext";
+import type { InitProgressReport, Role } from "../../types";
 
-export interface GenerationRequestContext {
-  messages: Message[];
-  prompt: string;
+export type ChatRole = Role | "system";
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string | null;
 }
 
-export interface WebLLMBackend {
-  generateResponse: (context: GenerationRequestContext) => Promise<string>;
+export interface CompletionOptions {
+  temperature: number;
+  maxTokens: number;
+  stream?: boolean;
+  signal?: AbortSignal;
+  systemPrompt?: string;
+}
+
+export interface CompletionResult {
+  text?: string;
+  stream?: AsyncIterable<string>;
+}
+
+export interface InitOptions {
+  modelId?: string;
+  onProgress?: (report: InitProgressReport) => void;
+}
+
+export interface MonGarsEngine {
+  init: (options?: InitOptions) => Promise<void>;
+  completeChat: (
+    messages: ChatMessage[],
+    options: CompletionOptions,
+  ) => Promise<CompletionResult>;
+  reset: () => Promise<void>;
+  getRuntimeStatsText?: () => Promise<string>;
+  getCurrentEngine?: () => Promise<unknown | null>;
 }

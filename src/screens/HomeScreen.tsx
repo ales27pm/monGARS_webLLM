@@ -1,225 +1,241 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
-import {
-  View,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
 import { ChatContext } from "../context/ChatContext";
 import ChatBubble from "../components/ChatBubble";
 import InputBar from "../components/InputBar";
-import { detectBestGpuBackend } from "../services/GpuService";
-import type { GpuCheckResult } from "../services/GpuService.types";
+import { detectGpuMode } from "../services/GpuService";
+import type { GpuMode } from "../services/GpuService.types";
 import { palette } from "../theme";
 
-const gpuLabel: Record<GpuCheckResult, string> = {
+type HomeScreenProps = {
+  navigation: { navigate: (screen: string) => void };
+};
+
+const gpuLabel: Record<GpuMode, string> = {
   webgpu: "WebGPU prêt",
+  webgl2: "WebGL2 actif",
   webgl: "WebGL actif",
-  canvas: "Canvas fallback",
   none: "Aucun backend GPU",
 };
 
-const gpuTone: Record<GpuCheckResult, string> = {
+const gpuTone: Record<GpuMode, string> = {
   webgpu: palette.success,
+  webgl2: palette.accent,
   webgl: palette.accent,
-  canvas: palette.warning,
   none: palette.error,
 };
 
-const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { messages, sendMessage, isGenerating } = useContext(ChatContext);
-  const [gpuStatus, setGpuStatus] = useState<GpuCheckResult>("none");
-  const [checkingGpu, setCheckingGpu] = useState(false);
+const cardStyle: React.CSSProperties = {
+  background: palette.surface,
+  border: `1px solid ${palette.border}`,
+  borderRadius: 12,
+  padding: 16,
+};
 
-  useEffect(() => {
-    let mounted = true;
+const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+  const { messages, sendMessage, isGenerating } = useContext(ChatContext);
+  const [gpuStatus, setGpuStatus] = useState<GpuMode>("none");
+  const [checkingGpu, setCheckingGpu] = useState(false);
+  const [gpuError, setGpuError] = useState<string | null>(null);
+
+  const runDetection = () => {
+    setGpuError(null);
     setCheckingGpu(true);
-    detectBestGpuBackend()
+    detectGpuMode()
       .then((backend) => {
-        if (mounted) setGpuStatus(backend);
+        setGpuStatus(backend);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error("GPU detection failed", error);
+        setGpuError(
+          "Impossible de détecter l'accélération matérielle. Le rendu repassera en mode logiciel.",
+        );
+        setGpuStatus("none");
       })
       .finally(() => {
-        if (mounted) setCheckingGpu(false);
+        setCheckingGpu(false);
       });
-    return () => {
-      mounted = false;
-    };
+  };
+
+  useEffect(() => {
+    runDetection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const gpuSubtitle = useMemo(() => {
     if (checkingGpu) return "Analyse de l'accélération matérielle";
-    if (Platform.OS === "web" && gpuStatus === "none") {
-      return "WebGPU indisponible, bascule en rendu CPU";
-    }
-    return Platform.OS === "web"
-      ? "Optimisé pour WebLLM avec fallback automatique"
-      : "Détection native prête pour l'inférence locale";
-  }, [checkingGpu, gpuStatus]);
+    return "Optimisé pour WebLLM avec fallback automatique";
+  }, [checkingGpu]);
+
+  const lastErrorMessage = useMemo(() => {
+    const reversed = [...messages].reverse();
+    const failing = reversed.find((msg) => msg.error);
+    return failing?.content ?? null;
+  }, [messages]);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.hero}>
-        <View style={styles.heroHeaderRow}>
-          <View>
-            <Text style={styles.eyebrow}>MON GARS</Text>
-            <Text style={styles.title}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ ...cardStyle }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ maxWidth: 640 }}>
+            <div style={{ color: palette.muted, fontWeight: 700, fontSize: 12 }}>
+              MON GARS
+            </div>
+            <div style={{ color: palette.text, fontSize: 22, fontWeight: 800 }}>
               Assistant privé sur tous tes appareils.
-            </Text>
-            <Text style={styles.subtitle}>
-              Compose, parle ou navige à la voix. L'IA s'exécute localement pour
-              protéger tes données.
-            </Text>
-          </View>
-          <View
-            style={[styles.statusPill, { borderColor: gpuTone[gpuStatus] }]}
-          >
-            {checkingGpu ? (
-              <ActivityIndicator color={palette.text} />
-            ) : (
-              <Text style={[styles.statusText, { color: gpuTone[gpuStatus] }]}>
-                {gpuLabel[gpuStatus]}
-              </Text>
-            )}
-            <Text style={styles.statusCaption}>{gpuSubtitle}</Text>
-          </View>
-        </View>
-        <View style={styles.actionsRow}>
+            </div>
+            <div style={{ color: palette.muted, fontSize: 14 }}>
+              Compose, parle ou navigue à la voix. L'IA s'exécute localement pour protéger tes données.
+            </div>
+          </div>
+        <div
+          style={{
+            minWidth: 220,
+            border: `1px solid ${palette.border}`,
+            borderRadius: 12,
+            padding: 12,
+            background: palette.elevated,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          {checkingGpu ? (
+            <div style={{ color: palette.text, fontWeight: 700 }}>Détection GPU…</div>
+          ) : gpuError ? (
+            <div style={{ color: palette.error, fontWeight: 700 }}>{gpuError}</div>
+          ) : (
+            <div style={{ color: gpuTone[gpuStatus], fontWeight: 700 }}>
+              {gpuLabel[gpuStatus]}
+            </div>
+          )}
+          <div style={{ color: palette.muted, fontSize: 12 }}>{gpuSubtitle}</div>
+          {gpuError ? (
+            <button
+              type="button"
+              onClick={runDetection}
+              style={{
+                alignSelf: "flex-start",
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                background: "transparent",
+                color: palette.text,
+                cursor: "pointer",
+              }}
+            >
+              Réessayer
+            </button>
+          ) : null}
+        </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
           <QuickAction
             label="Voice"
             description="Mode mains libres"
-            onPress={() => navigation.navigate("Voice")}
+            onClick={() => navigation.navigate("Voice")}
           />
           <QuickAction
             label="Settings"
             description="Modèles & mémoire"
-            onPress={() => navigation.navigate("Settings")}
+            onClick={() => navigation.navigate("Settings")}
           />
           <QuickAction
             label="Reasoning"
-            description="Visualiser les chaines"
-            onPress={() => navigation.navigate("Reasoning")}
+            description="Visualiser les chaînes"
+            onClick={() => navigation.navigate("Reasoning")}
           />
           <QuickAction
             label="Capabilities"
             description="Forces & limites"
-            onPress={() => navigation.navigate("Capabilities")}
+            onClick={() => navigation.navigate("Capabilities")}
           />
-        </View>
-      </View>
+        </div>
+      </div>
 
-      <ScrollView
-        contentContainerStyle={styles.chatContainer}
-        showsVerticalScrollIndicator={false}
-      >
+      <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: 8 }}>
         {messages.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Prêt à discuter</Text>
-            <Text style={styles.emptySubtitle}>
-              Envoie un message texte ou utilise le mode voix. L'assistant
-              s'adapte aux mobiles, TV et desktop.
-            </Text>
-          </View>
+          <div>
+            <div style={{ color: palette.text, fontWeight: 700, fontSize: 18 }}>
+              Prêt à discuter
+            </div>
+            <div style={{ color: palette.muted, fontSize: 14 }}>
+              Envoie un message texte ou utilise le mode voix. L'assistant s'adapte aux mobiles, TV et desktop.
+            </div>
+          </div>
         ) : (
-          messages.map((msg) => <ChatBubble key={msg.id} message={msg} />)
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {messages.map((msg) => (
+              <ChatBubble key={msg.id} message={msg} />
+            ))}
+          </div>
         )}
-      </ScrollView>
-      <InputBar onSend={sendMessage} disabled={isGenerating} />
-    </View>
+        {lastErrorMessage ? (
+          <div
+            style={{
+              background: palette.elevated,
+              border: `1px solid ${palette.error}`,
+              color: palette.text,
+              borderRadius: 10,
+              padding: 10,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: palette.error }}>Erreur modèle</div>
+            <div style={{ color: palette.muted, marginTop: 4 }}>{lastErrorMessage}</div>
+            <button
+              type="button"
+              onClick={() => runDetection()}
+              style={{
+                marginTop: 6,
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                background: "transparent",
+                color: palette.text,
+                cursor: "pointer",
+              }}
+            >
+              Vérifier le GPU
+            </button>
+          </div>
+        ) : null}
+        <div style={{ marginTop: 4 }}>
+          <InputBar onSend={sendMessage} disabled={isGenerating} isLoading={isGenerating} />
+        </div>
+      </div>
+    </div>
   );
 };
 
 const QuickAction: React.FC<{
   label: string;
   description: string;
-  onPress: () => void;
-}> = ({ label, description, onPress }) => (
-  <TouchableOpacity
-    style={styles.quickAction}
-    onPress={onPress}
-    accessibilityRole="button"
+  onClick: () => void;
+}> = ({ label, description, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      background: palette.elevated,
+      padding: 12,
+      borderRadius: 10,
+      border: `1px solid ${palette.border}`,
+      minWidth: 150,
+      color: palette.text,
+      textAlign: "left",
+      cursor: "pointer",
+    }}
   >
-    <Text style={styles.quickActionLabel}>{label}</Text>
-    <Text style={styles.quickActionDescription}>{description}</Text>
-  </TouchableOpacity>
+    <div style={{ fontWeight: 700, fontSize: 15 }}>{label}</div>
+    <div style={{ color: palette.muted, fontSize: 12 }}>{description}</div>
+  </button>
 );
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.background },
-  hero: {
-    padding: 16,
-    backgroundColor: palette.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: palette.border,
-  },
-  heroHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  eyebrow: {
-    color: palette.muted,
-    fontWeight: "700",
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  title: {
-    color: palette.text,
-    fontSize: 22,
-    fontWeight: "800",
-    marginTop: 4,
-    marginBottom: 6,
-  },
-  subtitle: { color: palette.muted, fontSize: 14, maxWidth: 520 },
-  statusPill: {
-    minWidth: 170,
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: palette.elevated,
-  },
-  statusText: { fontWeight: "700", fontSize: 14 },
-  statusCaption: { color: palette.muted, fontSize: 12, marginTop: 4 },
-  actionsRow: {
-    flexDirection: "row",
-    marginTop: 12,
-    flexWrap: "wrap",
-  },
-  quickAction: {
-    backgroundColor: palette.elevated,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: palette.border,
-    minWidth: 150,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  quickActionLabel: { color: palette.text, fontWeight: "700", fontSize: 15 },
-  quickActionDescription: { color: palette.muted, fontSize: 12, marginTop: 4 },
-  chatContainer: { padding: 12 },
-  emptyState: {
-    paddingVertical: 32,
-    paddingHorizontal: 16,
-    backgroundColor: palette.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  emptyTitle: {
-    color: palette.text,
-    fontWeight: "700",
-    fontSize: 18,
-    marginBottom: 8,
-  },
-  emptySubtitle: { color: palette.muted, fontSize: 14 },
-});
 
 export default HomeScreen;

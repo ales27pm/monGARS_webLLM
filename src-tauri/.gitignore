@@ -1,0 +1,5 @@
+/target
+**/*.log
+icons/*.png
+icons/*.ico
+icons/*.icns

@@ -1,0 +1,17 @@
+[package]
+name = "mongars-desktop"
+version = "0.1.0"
+authors = ["Mon Gars Team"]
+edition = "2021"
+description = "Secure desktop wrapper for the Mon Gars WebLLM client"
+
+[build-dependencies]
+tauri-build = { version = "1.6", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["shell-open"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

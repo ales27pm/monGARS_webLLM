@@ -1,11 +1,15 @@
 import type {
-  GenerationRequestContext,
-  WebLLMBackend,
+  ChatMessage,
+  CompletionOptions,
+  CompletionResult,
+  InitOptions,
+  MonGarsEngine,
 } from "./WebLLMService.types";
 import { DEFAULT_MODEL_ID } from "../../models";
+import type { MLCEngine } from "../../types";
 
 type ChatCompletionMessageParam = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
 };
 
@@ -14,60 +18,125 @@ type ChatCompletionPayload = {
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
+  signal?: AbortSignal;
 };
 
-class WebBackend implements WebLLMBackend {
-  private enginePromise: Promise<any> | null = null;
+class WebBackend implements MonGarsEngine {
+  private enginePromise: Promise<MLCEngine> | null = null;
+  private currentEngine: MLCEngine | null = null;
 
-  private async ensureEngine() {
+  async init(options?: InitOptions): Promise<void> {
+    await this.ensureEngine(options);
+  }
+
+  private async ensureEngine(options?: InitOptions): Promise<MLCEngine> {
     if (!this.enginePromise) {
       this.enginePromise = (async () => {
         const webllm = await import("@mlc-ai/web-llm");
         const { CreateMLCEngine } = webllm as any;
-        const engine = await CreateMLCEngine(DEFAULT_MODEL_ID, {});
+        const engine = (await CreateMLCEngine(
+          options?.modelId ?? DEFAULT_MODEL_ID,
+          {
+            initProgressCallback: options?.onProgress,
+          },
+        )) as MLCEngine;
+        this.currentEngine = engine;
         return engine;
       })();
     }
 
-    return this.enginePromise;
+    const engine = await this.enginePromise;
+    if (options?.onProgress) {
+      options.onProgress({ progress: 1, text: "Modèle prêt" });
+    }
+    return engine;
   }
 
   private buildMessages(
-    context: GenerationRequestContext,
+    messages: ChatMessage[],
+    systemPrompt?: string,
   ): ChatCompletionMessageParam[] {
-    const history = context.messages.slice(-10).map((message) => ({
-      role: message.role,
-      content: message.content,
-    })) as ChatCompletionMessageParam[];
+    const normalizedHistory = messages
+      .filter((msg) => msg.content !== null)
+      .map((message) => ({
+        role: message.role as ChatCompletionMessageParam["role"],
+        content: (message.content ?? "").toString(),
+      }));
 
-    return [
-      {
-        role: "system",
-        content:
-          "Tu es Mon Gars, un assistant qui tourne en local. Réponds de façon concise et utile.",
-      },
-      ...history,
-      { role: "user", content: context.prompt },
-    ];
+    if (systemPrompt) {
+      const first = normalizedHistory[0];
+      if (!first || first.role !== "system") {
+        return [
+          { role: "system", content: systemPrompt },
+          ...normalizedHistory,
+        ];
+      }
+      return normalizedHistory;
+    }
+
+    return normalizedHistory;
   }
 
-  async generateResponse(context: GenerationRequestContext): Promise<string> {
+  async completeChat(
+    messages: ChatMessage[],
+    options: CompletionOptions,
+  ): Promise<CompletionResult> {
     const engine = await this.ensureEngine();
 
     const payload: ChatCompletionPayload = {
-      messages: this.buildMessages(context),
-      stream: false,
-      temperature: 0.7,
-      max_tokens: 256,
+      messages: this.buildMessages(messages, options.systemPrompt),
+      stream: options.stream ?? false,
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
+      signal: options.signal,
     };
+
+    if (payload.stream) {
+      const chunks = await engine.chat.completions.create(payload);
+      const stream = (async function* () {
+        for await (const chunk of chunks) {
+          const content = chunk?.choices?.[0]?.delta?.content ?? "";
+          if (content) {
+            yield content;
+          }
+        }
+      })();
+      return { stream };
+    }
 
     const completion = await engine.chat.completions.create(payload);
     const result = completion?.choices?.[0]?.message?.content;
     if (typeof result === "string" && result.trim().length > 0) {
-      return result.trim();
+      return { text: result.trim() };
     }
     throw new Error("Réponse vide reçue du modèle WebLLM.");
   }
+
+  async reset(): Promise<void> {
+    const engine = await this.enginePromise;
+    if (engine && typeof engine.dispose === "function") {
+      try {
+        await engine.dispose();
+      } catch (err) {
+        console.warn("Erreur lors de la libération de WebLLM:", err);
+      }
+    }
+    this.enginePromise = null;
+    this.currentEngine = null;
+  }
+
+  getRuntimeStatsText = async (): Promise<string> => {
+    const engine = await this.ensureEngine();
+    if (typeof engine.runtimeStatsText === "function") {
+      return engine.runtimeStatsText();
+    }
+    return "Statistiques indisponibles";
+  };
+
+  getCurrentEngine = async (): Promise<MLCEngine | null> => {
+    if (!this.enginePromise) return null;
+    return this.enginePromise;
+  };
 }
 
-export const webBackend: WebLLMBackend = new WebBackend();
+export const webBackend: MonGarsEngine = new WebBackend();

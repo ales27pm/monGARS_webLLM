@@ -11,7 +11,8 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -20,7 +21,25 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
+      ],
+      "@/services/*": [
+        "./src/services/*"
+      ],
+      "@/brain/*": [
+        "./src/brain/*"
+      ],
+      "@/components/*": [
+        "./src/components/*"
+      ],
+      "@/screens/*": [
+        "./src/screens/*"
+      ],
+      "@/context/*": [
+        "./src/context/*"
+      ],
+      "@/config/*": [
+        "./src/config/*"
       ]
     },
     "allowImportingTsExtensions": true,

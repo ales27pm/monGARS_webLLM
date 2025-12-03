@@ -3,15 +3,39 @@
     "productName": "monGARS",
     "version": "0.1.0"
   },
+  "build": {
+    "beforeBuildCommand": "npm run tauri:prepare",
+    "beforeDevCommand": "npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
   "tauri": {
+    "allowlist": {
+      "all": false
+    },
+    "bundle": {
+      "active": true,
+      "identifier": "com.mongars.desktop",
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ]
+    },
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:;", 
+      "dangerousRemoteDomainIpcAccess": []
+    },
     "windows": [
       {
         "fullscreen": false,
-        "title": "monGARS Desktop"
+        "title": "monGARS Desktop",
+        "width": 1280,
+        "height": 720,
+        "resizable": true,
+        "center": true
       }
-    ],
-    "security": {
-      "csp": null
-    }
+    ]
   }
 }

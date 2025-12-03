@@ -1,5 +1,15 @@
-import React, { createContext, useCallback, useMemo, useState } from "react";
-import { webLLMService } from "../services/WebLLMService";
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { useMonGarsBrain } from "../brain/useMonGarsBrain";
+import type {
+  MemoryStats,
+  ReasoningTrace,
+  SpeechState,
+} from "../brain/MonGarsBrainService";
 
 export interface Message {
   id: string;
@@ -11,80 +21,98 @@ export interface Message {
 interface ChatContextType {
   messages: Message[];
   sendMessage: (text: string) => Promise<void>;
+  resetConversation: () => void;
   isGenerating: boolean;
+
+  // Extra state exposed from the brain layer for richer UIs.
+  reasoningTrace: ReasoningTrace | null;
+  memoryStats: MemoryStats;
+  speechState: SpeechState;
+  isSpeaking: boolean;
+  isRecording: boolean;
+  canSpeak: boolean;
 }
 
-export const ChatContext = createContext<ChatContextType>({
+const defaultValue: ChatContextType = {
   messages: [],
-  sendMessage: async () => undefined,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async sendMessage(_text: string): Promise<void> {
+    console.warn("ChatContext.sendMessage called outside of provider.");
+  },
+  resetConversation() {
+    console.warn("ChatContext.resetConversation called outside of provider.");
+  },
   isGenerating: false,
-});
+  reasoningTrace: null,
+  memoryStats: { totalEntries: 0, lastHitScore: null },
+  speechState: {
+    mode: "idle",
+    isRecording: false,
+    isPlaying: false,
+    lastError: null,
+  },
+  isSpeaking: false,
+  isRecording: false,
+  canSpeak: false,
+};
 
-export const ChatProvider: React.FC<React.PropsWithChildren> = ({
-  children,
-}) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
+export const ChatContext = createContext<ChatContextType>(defaultValue);
 
-  const sendMessage = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
+interface ChatProviderProps {
+  children: ReactNode;
+}
 
-      if (isGenerating) return;
+export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
+  const {
+    messages,
+    isBusy,
+    sendUserMessage,
+    resetConversation,
+    reasoningTrace,
+    memoryStats,
+    speechState,
+  } = useMonGarsBrain();
 
-      setIsGenerating(true);
+  const isSpeaking =
+    speechState.mode === "speaking" || speechState.isPlaying === true;
+  const isRecording =
+    speechState.mode === "listening" || speechState.isRecording === true;
+  const canSpeak = speechState.lastError === null;
 
-      const userMessage: Message = {
-        id: `${Date.now()}-user`,
-        role: "user",
-        content: trimmed,
-      };
-
-      const nextHistory = [...messages, userMessage];
-      setMessages(nextHistory);
-
-      try {
-        const assistantContent = await webLLMService.generateResponse(
-          trimmed,
-          nextHistory,
-        );
-
-        const assistantReply: Message = {
-          id: `${Date.now()}-assistant`,
-          role: "assistant",
-          content: assistantContent,
-        };
-
-        setMessages((prev) => [...prev, assistantReply]);
-      } catch (error: any) {
-        console.error("WebLLM generation failed", error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-assistant-error`,
-            role: "assistant",
-            content:
-              error?.message ||
-              "Impossible de générer une réponse pour le moment. Vérifie la configuration du modèle et réessaie.",
-            error: true,
-          },
-        ]);
-      } finally {
-        setIsGenerating(false);
-      }
-    },
-    [isGenerating, messages],
-  );
-
-  const value = useMemo(
+  const value = useMemo<ChatContextType>(
     () => ({
       messages,
-      sendMessage,
-      isGenerating,
+      sendMessage: sendUserMessage,
+      resetConversation,
+      isGenerating: isBusy,
+      reasoningTrace,
+      memoryStats,
+      speechState,
+      isSpeaking,
+      isRecording,
+      canSpeak,
     }),
-    [messages, sendMessage, isGenerating],
+    [
+      messages,
+      sendUserMessage,
+      resetConversation,
+      isBusy,
+      reasoningTrace,
+      memoryStats,
+      speechState,
+      isSpeaking,
+      isRecording,
+      canSpeak,
+    ],
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+};
+
+export const useChatContext = (): ChatContextType => {
+  const ctx = useContext(ChatContext);
+  if (!ctx) {
+    throw new Error("useChatContext must be used within a ChatProvider");
+  }
+  return ctx;
 };
