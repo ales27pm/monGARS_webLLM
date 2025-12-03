@@ -77,6 +77,10 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     setIsTranscribing(transcribing);
   };
 
+  const stopStreamTracks = useCallback((stream: MediaStream | null) => {
+    stream?.getTracks().forEach((track) => track.stop());
+  }, []);
+
   const stopNativeRecognition = useCallback(() => {
     if (!recognitionRef.current) return;
     recognitionRef.current.onend = null;
@@ -184,7 +188,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
         if (blob.size === 0) {
           setError("Aucun audio enregistré.");
-          stream.getTracks().forEach((track) => track.stop());
+          stopStreamTracks(stream);
           return;
         }
 
@@ -197,7 +201,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
           setError("La transcription a échoué. Vérifie ton micro et réessaie.");
         } finally {
           setIsTranscribing(false);
-          stream.getTracks().forEach((track) => track.stop());
+          stopStreamTracks(stream);
+          recorderRef.current = null;
         }
       };
 
@@ -206,7 +211,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         setActiveStream(null);
         setRecordingFlags(false, false);
         setError("L'enregistrement a été interrompu.");
-        stream.getTracks().forEach((track) => track.stop());
+        stopStreamTracks(stream);
+        recorderRef.current = null;
       };
 
       recorder.start();
