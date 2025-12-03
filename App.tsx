@@ -758,13 +758,7 @@ Règles :
           partialResponse: null,
           memoryEnabled: config.semanticMemoryEnabled,
           memoryResults: contextForAnswer.slices.memoryResults,
-          memoryContextSummary:
-            contextForAnswer.slices.memorySummary ??
-            (config.semanticMemoryEnabled
-              ? contextForAnswer.slices.memoryResults.length > 0
-                ? "Mémoire utilisée (résultats disponibles)."
-                : "Mémoire activée mais aucun résultat pertinent."
-              : "Mémoire désactivée."),
+          memoryContextSummary: contextForAnswer.slices.memorySummary,
           usedExternalTool: shouldSearch,
           notes: [],
         }),
