@@ -169,6 +169,7 @@ class MonGarsBrainService {
         for await (const chunk of completion.stream) {
 
         let received = false;
+        let received = false;
         for await (const chunk of completion.stream) {
           if (chunk && chunk.length > 0) {
             received = true;
@@ -180,7 +181,6 @@ class MonGarsBrainService {
         if (!received) {
           this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
         }
-      } else {
         const sanitized = (completion.text ?? "").trim();
         if (sanitized.length > 0) {
           const assistantMessage: Message = {
