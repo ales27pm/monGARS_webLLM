@@ -416,7 +416,22 @@ const normalizeDecisionCore = (
   const planSuggestedAction = detectActionHint(fallbackPlan);
   const rationaleSuggestedAction = detectActionHint(fallbackRationale);
 
-  const fallbackAction: "search" | "respond" = "search";
+  const hasFallbackQuery = !!fallbackQueryMatch?.[1]?.trim();
+  const hasFallbackResponse = !!fallbackResponseMatch?.[1]?.trim();
+  const hintedAction = planSuggestedAction || rationaleSuggestedAction;
+
+  const fallbackAction: "search" | "respond" =
+    actionFromText === "search" || actionFromText === "respond"
+      ? actionFromText
+      : hasFallbackQuery && !hasFallbackResponse
+        ? "search"
+        : hasFallbackResponse && !hasFallbackQuery
+          ? "respond"
+          : hintedAction === "search" || hintedAction === "respond"
+            ? hintedAction
+            : hasFallbackQuery
+              ? "search"
+              : "respond";
 
   const actionFlip: NormalizationMeta["actionFlip"] =
     actionFromText && actionFromText !== fallbackAction
@@ -451,16 +466,14 @@ const normalizeDecisionCore = (
     actionFlip,
     hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
     hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
-    responseMissing:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+    responseMissing: fallbackAction === "respond" && !hasFallbackResponse,
     responseMissingReason:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim()
+      fallbackAction === "respond" && !hasFallbackResponse
         ? "Réponse absente dans la sortie non structurée du modèle."
         : undefined,
-    fallbackQueryMissing:
-      fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
+    fallbackQueryMissing: fallbackAction === "search" && !hasFallbackQuery,
     fallbackResponseMissing:
-      fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
+      fallbackAction === "respond" && !hasFallbackResponse,
     planSuggestedAction,
     rationaleSuggestedAction,
   };
