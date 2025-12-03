@@ -416,18 +416,7 @@ const normalizeDecisionCore = (
   const planSuggestedAction = detectActionHint(fallbackPlan);
   const rationaleSuggestedAction = detectActionHint(fallbackRationale);
 
-  let fallbackAction: "search" | "respond";
-  if (actionFromText === "respond") {
-    fallbackAction = "respond";
-  } else if (actionFromText === "search" && fallbackQueryMatch?.[1]?.trim()) {
-    fallbackAction = "search";
-  } else if (fallbackResponseMatch?.[1]?.trim()) {
-    fallbackAction = "respond";
-  } else if (fallbackQueryMatch?.[1]?.trim()) {
-    fallbackAction = "search";
-  } else {
-    fallbackAction = "respond";
-  }
+  const fallbackAction: "search" | "respond" = "search";
 
   const actionFlip: NormalizationMeta["actionFlip"] =
     actionFromText && actionFromText !== fallbackAction
