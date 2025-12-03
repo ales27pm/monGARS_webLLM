@@ -166,7 +166,6 @@ class MonGarsBrainService {
         this.messages = [...this.messages, assistantMessage];
         this.broadcast();
 
-
         let received = false;
         for await (const chunk of completion.stream) {
           if (chunk && chunk.length > 0) {
@@ -178,6 +177,8 @@ class MonGarsBrainService {
         if (!received) {
           this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
         }
+        // Do not append completion.text when stream was used to avoid duplicate assistant messages
+      } else {
         const sanitized = (completion.text ?? "").trim();
         if (sanitized.length > 0) {
           const assistantMessage: Message = {
