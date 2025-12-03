@@ -50,4 +50,8 @@ export interface MLCEngine {
     };
   };
   runtimeStatsText: () => Promise<string>;
+  // Some runtimes expose an explicit dispose hook when the GPU device is lost
+  // or the engine needs to be torn down. Marked optional to avoid breaking
+  // environments where it is not available.
+  dispose?: () => Promise<void>;
 }

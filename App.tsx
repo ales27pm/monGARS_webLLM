@@ -36,7 +36,11 @@ import type {
   MLCEngine,
 } from "./types";
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
-import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine";
+import {
+  decideNextAction,
+  MODEL_ID,
+  buildAnswerHistory,
+} from "./decisionEngine";
 import { getModelShortLabel } from "./models";
 import { rebuildContextWithExternalEvidence } from "./contextEngine";
 import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
@@ -95,6 +99,8 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isReloadingRef = useRef(false);
+  const loadEnginePromiseRef = useRef<Promise<MLCEngine | null> | null>(null);
+  const lastDisposedEngineRef = useRef<MLCEngine | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>("idle");
   const [initProgress, setInitProgress] = useState<InitProgressReport>({
     progress: 0,
@@ -187,7 +193,8 @@ Règles :
   const semanticMemoryClient = useMemo(
     () => ({
       enabled: config.semanticMemoryEnabled,
-      search: (query: string, neighbors: number) => queryMemory(query, neighbors),
+      search: (query: string, neighbors: number) =>
+        queryMemory(query, neighbors),
     }),
     [config.semanticMemoryEnabled, queryMemory],
   );
@@ -338,92 +345,129 @@ Règles :
     };
   }, [checkWebGPU]);
 
-  const loadEngine = useCallback(
-    async (forceReload = false): Promise<MLCEngine | null> => {
-      if (isReloadingRef.current) return engine;
-
-      const existingEngine = engine;
-      if (existingEngine && !forceReload) return existingEngine;
-
-      // Wait for WebGPU support check. If unsupported, abort loading.
-      if (!(await checkWebGPU())) return null;
-
-      isReloadingRef.current = true;
-      setEngineStatus("loading");
-      setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+  const safeDisposeEngine = useCallback(
+    async (engineToDispose: MLCEngine | null, context: string) => {
+      if (!engineToDispose || typeof engineToDispose.dispose !== "function") {
+        return;
+      }
 
       try {
-        const selectedModel = config.modelId;
-
-        const webllm = await getWebLLM();
-        const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
-          modelId: string,
-          options: {
-            initProgressCallback?: (report: InitProgressReport) => void;
-            appConfig?: any;
-          },
-        ) => Promise<any>;
-
-        // Ask WebLLM to create the engine for the selected model.  We do not
-        // provide a custom `appConfig` here. When the model ID corresponds to
-        // one of the officially supported models (including Qwen2.5), WebLLM
-        // automatically fetches the appropriate WASM runtime and model files.
-        const newEngine = (await CreateMLCEngineFn(selectedModel, {
-          initProgressCallback: (report: InitProgressReport) => {
-            setInitProgress({
-              progress: Math.round(report.progress * 100),
-              text: report.text,
-            });
-          },
-          // Note: No `appConfig` is passed. Passing an incorrect
-          // configuration can lead to cryptic errors (e.g. reading
-          // `.endsWith` on undefined). Let the runtime infer the correct
-          // configuration based on `selectedModel`.
-        })) as MLCEngine;
-
-        setEngine(newEngine);
-        setEngineStatus("ready");
-
-        addToast(
-          "Moteur chargé",
-          `Modèle ${getModelShortLabel(selectedModel)} prêt.`,
-          "success",
-        );
-
-        setMessages((prev) => {
-          if (prev.length > 0) return prev;
-          const welcomeMessage: Message = {
-            id: `msg-${Date.now()}`,
-            role: "assistant",
-            content:
-              `Salut ! Je suis **Mon Gars**, ton assistant IA local.\n\n` +
-              `Je fonctionne entièrement *sur ton appareil* grâce à WebGPU : rien ne quitte ton téléphone.\n\n` +
-              `Pose-moi une question, ou demande-moi d'expliquer quelque chose.`,
-            timestamp: Date.now(),
-          };
-          return [welcomeMessage];
-        });
-
-        return newEngine;
-      } catch (err: any) {
-        console.error("Engine loading error:", err);
-        setEngineStatus("error");
-        setInitProgress({
-          progress: 0,
-          text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
-        });
-        addToast(
-          "Erreur de chargement",
-          err?.message ||
-            "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
-          "error",
-        );
-        return null;
-      } finally {
-        isReloadingRef.current = false;
+        await engineToDispose.dispose();
+        lastDisposedEngineRef.current = engineToDispose;
+      } catch (disposeErr) {
+        console.warn(`Error while disposing ${context} engine:`, disposeErr);
       }
     },
-    [addToast, checkWebGPU, config.modelId, engine],
+    [],
+  );
+
+  const loadEngine = useCallback(
+    async (forceReload = false): Promise<MLCEngine | null> => {
+      if (loadEnginePromiseRef.current) return loadEnginePromiseRef.current;
+
+      const loadPromise = (async () => {
+        if (isReloadingRef.current) return engine;
+
+        const existingEngine = engine;
+        if (existingEngine && !forceReload) return existingEngine;
+
+        if (
+          existingEngine &&
+          forceReload &&
+          lastDisposedEngineRef.current !== existingEngine
+        ) {
+          await safeDisposeEngine(existingEngine, "previous");
+          setEngine(null);
+        }
+
+        // Wait for WebGPU support check. If unsupported, abort loading.
+        if (!(await checkWebGPU())) return null;
+
+        isReloadingRef.current = true;
+        setEngineStatus("loading");
+        setInitProgress({ progress: 0, text: "Initialisation du moteur..." });
+
+        try {
+          const selectedModel = config.modelId;
+
+          const webllm = await getWebLLM();
+          const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
+            modelId: string,
+            options: {
+              initProgressCallback?: (report: InitProgressReport) => void;
+              appConfig?: any;
+            },
+          ) => Promise<any>;
+
+          // Ask WebLLM to create the engine for the selected model.  We do not
+          // provide a custom `appConfig` here. When the model ID corresponds to
+          // one of the officially supported models (including Qwen2.5), WebLLM
+          // automatically fetches the appropriate WASM runtime and model files.
+          const newEngine = (await CreateMLCEngineFn(selectedModel, {
+            initProgressCallback: (report: InitProgressReport) => {
+              setInitProgress({
+                progress: Math.round(report.progress * 100),
+                text: report.text,
+              });
+            },
+            // Note: No `appConfig` is passed. Passing an incorrect
+            // configuration can lead to cryptic errors (e.g. reading
+            // `.endsWith` on undefined). Let the runtime infer the correct
+            // configuration based on `selectedModel`.
+          })) as MLCEngine;
+
+          setEngine(newEngine);
+          setEngineStatus("ready");
+
+          addToast(
+            "Moteur chargé",
+            `Modèle ${getModelShortLabel(selectedModel)} prêt.`,
+            "success",
+          );
+
+          setMessages((prev) => {
+            if (prev.length > 0) return prev;
+            const welcomeMessage: Message = {
+              id: `msg-${Date.now()}`,
+              role: "assistant",
+              content:
+                `Salut ! Je suis **Mon Gars**, ton assistant IA local.\n\n` +
+                `Je fonctionne entièrement *sur ton appareil* grâce à WebGPU : rien ne quitte ton téléphone.\n\n` +
+                `Pose-moi une question, ou demande-moi d'expliquer quelque chose.`,
+              timestamp: Date.now(),
+            };
+            return [welcomeMessage];
+          });
+
+          return newEngine;
+        } catch (err: any) {
+          console.error("Engine loading error:", err);
+          setEngineStatus("error");
+          setInitProgress({
+            progress: 0,
+            text: `Erreur: ${err?.message || "Impossible d'initialiser le moteur"}`,
+          });
+          addToast(
+            "Erreur de chargement",
+            err?.message ||
+              "Impossible d'initialiser l'IA. Vérifie ta connexion et réessaie.",
+            "error",
+          );
+          return null;
+        } finally {
+          isReloadingRef.current = false;
+        }
+      })();
+
+      loadEnginePromiseRef.current = loadPromise;
+
+      try {
+        return await loadPromise;
+      } finally {
+        loadEnginePromiseRef.current = null;
+      }
+    },
+    [addToast, checkWebGPU, config.modelId, engine, safeDisposeEngine],
   );
 
   const handleEngineError = useCallback(
@@ -434,8 +478,9 @@ Règles :
         setEngineStatus("error");
         setInitProgress({
           progress: 0,
-          text: "Moteur WebGPU relancé après une erreur interne.",
+          text: "Réinitialisation du moteur WebGPU après une erreur interne...",
         });
+        await safeDisposeEngine(engine, "failed");
         setEngine(null);
         addToast(
           "Redémarrage du moteur",
@@ -445,6 +490,11 @@ Règles :
         try {
           const newEngine = await loadEngine(true);
           if (newEngine) {
+            addToast(
+              "Moteur relancé",
+              "Le moteur WebGPU a redémarré. Renvoyez votre dernière question pour continuer.",
+              "success",
+            );
             return true;
           }
           console.error(
@@ -452,12 +502,17 @@ Règles :
           );
         } catch (loadErr) {
           console.error("Engine recovery failed during loadEngine:", loadErr);
+          addToast(
+            "WebGPU indisponible",
+            "Le redémarrage du moteur a échoué (GPU indisponible ou onglet en arrière-plan). Recharge la page ou vérifie l'accès WebGPU.",
+            "error",
+          );
         }
         return false;
       }
       return false;
     },
-    [addToast, loadEngine],
+    [addToast, loadEngine, engine, safeDisposeEngine],
   );
 
   useEffect(() => {
@@ -738,7 +793,10 @@ Règles :
         setSearchQuery(query);
 
         const searchResult: ExternalToolResult = await performExternalTool(
-          { decisionQuery: query, userInput: userMessage.content || trimmedInput },
+          {
+            decisionQuery: query,
+            userInput: userMessage.content || trimmedInput,
+          },
           performWebSearch,
           abortControllerRef.current?.signal,
         );
@@ -867,8 +925,9 @@ Règles :
           msg.id === aiMessagePlaceholder.id
             ? {
                 ...msg,
-                content:
-                  "Désolé, une erreur est survenue pendant la génération. Réessaie dans un instant.",
+                content: recovered
+                  ? "Le moteur WebGPU a redémarré suite à une erreur. Merci de renvoyer votre message."
+                  : "Désolé, une erreur est survenue pendant la génération. Réessaie dans un instant.",
               }
             : msg,
         ),
