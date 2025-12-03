@@ -52,16 +52,19 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
       </div>
       <button
         type="button"
-        onClick={() => onSpeak("Test voix capturée")}
+        onClick={() => {
+          if (disabled || busy) return;
+          onSpeak("Test voix capturée");
+        }}
         style={{
           background: palette.accent,
           color: "white",
           border: "none",
           padding: "12px 14px",
           borderRadius: 12,
-          cursor: "pointer",
+          cursor: disabled || busy ? "not-allowed" : "pointer",
           fontWeight: 700,
-          opacity: disabled ? 0.5 : 1,
+          opacity: disabled || busy ? 0.5 : 1,
         }}
         disabled={disabled || busy}
       >
