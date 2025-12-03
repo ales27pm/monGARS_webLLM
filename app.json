@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "monGARS",
+    "slug": "monGARS",
+    "version": "1.0.0",
+    "platforms": ["ios", "android", "web"],
+    "orientation": "portrait",
+    "jsEngine": "hermes",
+    "extra": {
+      "someConfig": true
+    }
+  }
+}
