@@ -40,15 +40,10 @@ import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine
 import { getModelShortLabel } from "./models";
 import { rebuildContextWithExternalEvidence } from "./contextEngine";
 import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
-import {
-  callFacebookPagePostsTool,
-  callOutlookEventsTool,
-  callScrapeTool,
-  callWeatherTool,
-  initFacebookSdk,
-  type ToolResult,
-  type ToolSource,
-} from "./toolClients";
+import { type ToolSource } from "./toolClients";
+import { performExternalTool, type ExternalToolResult } from "./externalTools";
+import { mergeSourcesByUrl } from "./sourcesUtils";
+import { useFacebookSdk } from "./useFacebookSdk";
 
 declare global {
   interface Navigator {
@@ -221,12 +216,7 @@ Règles :
     document.documentElement.classList.toggle("dark", config.theme === "dark");
   }, [config.theme]);
 
-  useEffect(() => {
-    const fbAppId = import.meta.env.VITE_FB_APP_ID;
-    if (fbAppId) {
-      initFacebookSdk(fbAppId);
-    }
-  }, []);
+  useFacebookSdk(import.meta.env.VITE_FB_APP_ID);
 
   useEffect(() => {
     try {
@@ -511,153 +501,12 @@ Règles :
   const [sources, setSources] = useState<Source[]>([]);
 
   const addSource = (title: string, url: string) => {
-    setSources((prev) => {
-      if (prev.some((s) => s.url === url)) return prev;
-      return [...prev, { title, url }];
-    });
+    setSources((prev) => mergeSourcesByUrl(prev, [{ title, url }]));
   };
 
   const mergeSources = (newSources: Source[]) => {
     if (!newSources.length) return;
-    setSources((prev) => {
-      const merged = new Map<string, Source>();
-      prev.forEach((src) => merged.set(src.url, src));
-      newSources.forEach((src) => {
-        if (src.url) {
-          merged.set(src.url, src);
-        }
-      });
-      return Array.from(merged.values());
-    });
-  };
-
-  type ExternalToolKind =
-    | "web_search"
-    | "weather"
-    | "outlook_calendar"
-    | "facebook_page"
-    | "scrape";
-
-  const detectToolKind = (input: string): ExternalToolKind => {
-    const lower = input.toLowerCase();
-
-    if (lower.includes("météo") || lower.includes("meteo") || lower.includes("weather")) {
-      return "weather";
-    }
-
-    if (
-      lower.includes("outlook") ||
-      lower.includes("office 365") ||
-      lower.includes("calendar") ||
-      lower.includes("calendrier") ||
-      lower.includes("rdv") ||
-      lower.includes("rendez-vous")
-    ) {
-      return "outlook_calendar";
-    }
-
-    if (lower.includes("facebook") || lower.includes("fb page")) {
-      return "facebook_page";
-    }
-
-    if (
-      lower.includes("scrape") ||
-      lower.includes("analyse cette page") ||
-      lower.includes("extraire le contenu") ||
-      lower.match(/https?:\/\/\S+/)
-    ) {
-      return "scrape";
-    }
-
-    return "web_search";
-  };
-
-  const extractCityFromInput = (input: string, fallback: string): string => {
-    const m =
-      input.match(/m[ée]t[ée]o\s+(?:de|du|pour)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i) ||
-      input.match(/weather\s+(?:in|for)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i);
-    if (m && m[1]) return m[1].trim();
-    return fallback;
-  };
-
-  const extractFbPageId = (input: string, fallback: string): string => {
-    const urlMatch = input.match(/facebook\.com\/([A-Za-z0-9_.-]+)/i);
-    if (urlMatch && urlMatch[1]) return urlMatch[1];
-    const nameMatch = input.match(/page\s+([A-Za-z0-9_.-]+)/i);
-    if (nameMatch && nameMatch[1]) return nameMatch[1];
-    return fallback.trim().slice(0, 64);
-  };
-
-  const extractUrlForScrape = (input: string, fallback: string): string => {
-    const urlMatch = input.match(/https?:\/\/\S+/i);
-    if (urlMatch && urlMatch[0]) return urlMatch[0];
-    return fallback;
-  };
-
-  const performExternalTool = async (
-    decisionQuery: string,
-    userInput: string,
-    performWebSearchFn: (
-      query: string,
-      parentSignal?: AbortSignal | null,
-    ) => Promise<{ content: string; sources: Source[] }>,
-    parentSignal?: AbortSignal | null,
-  ): Promise<{ content: string; sources: Source[] }> => {
-    const trimmedQuery = decisionQuery.trim() || userInput.trim();
-    const kind = detectToolKind(userInput || decisionQuery);
-
-    switch (kind) {
-      case "weather": {
-        const city = extractCityFromInput(userInput, trimmedQuery);
-        const result: ToolResult = await callWeatherTool({
-          city,
-          units: "metric",
-        });
-        return {
-          content: result.content,
-          sources: result.sources || [],
-        };
-      }
-
-      case "outlook_calendar": {
-        const result: ToolResult = await callOutlookEventsTool({
-          days_ahead: 7,
-        });
-        return {
-          content: result.content,
-          sources: result.sources || [],
-        };
-      }
-
-      case "facebook_page": {
-        const pageId = extractFbPageId(userInput, trimmedQuery);
-        const result: ToolResult = await callFacebookPagePostsTool({
-          page_id: pageId,
-          limit: 5,
-        });
-        return {
-          content: result.content,
-          sources: result.sources || [],
-        };
-      }
-
-      case "scrape": {
-        const url = extractUrlForScrape(userInput, trimmedQuery);
-        const result: ToolResult = await callScrapeTool({
-          url,
-          max_chars: 4000,
-        });
-        return {
-          content: result.content,
-          sources: result.sources || [{ title: url, url }],
-        };
-      }
-
-      case "web_search":
-      default: {
-        return performWebSearchFn(trimmedQuery, parentSignal);
-      }
-    }
+    setSources((prev) => mergeSourcesByUrl(prev, newSources));
   };
 
   const clearConversation = useCallback(() => {
@@ -887,9 +736,8 @@ Règles :
         const query = decision.query as string;
         setSearchQuery(query);
 
-        const searchResult = await performExternalTool(
-          query,
-          userMessage.content || trimmedInput,
+        const searchResult: ExternalToolResult = await performExternalTool(
+          { decisionQuery: query, userInput: userMessage.content || trimmedInput },
           performWebSearch,
           abortControllerRef.current?.signal,
         );

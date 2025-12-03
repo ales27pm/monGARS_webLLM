@@ -64,40 +64,65 @@ export async function callWeatherTool(params: {
   };
 }
 
-const msalConfig = {
-  auth: {
-    clientId: import.meta.env.VITE_MS_CLIENT_ID as string,
-    authority: import.meta.env.VITE_MS_AUTHORITY || "https://login.microsoftonline.com/common",
-    redirectUri: window.location.origin,
-  },
-};
-
 const loginRequest = {
   scopes: ["User.Read", "Calendars.Read"],
 };
 
-const msalInstance = new PublicClientApplication(msalConfig);
+let msalInstance: PublicClientApplication | null = null;
+let msalConfigKey: string | null = null;
 
-async function getGraphAccessToken(): Promise<string> {
-  if (!msalConfig.auth.clientId) {
+const createMsalConfig = () => {
+  if (typeof window === "undefined") {
+    throw new Error("MSAL indisponible côté serveur.");
+  }
+
+  const clientId = import.meta.env.VITE_MS_CLIENT_ID as string | undefined;
+  const authority = import.meta.env.VITE_MS_AUTHORITY || "https://login.microsoftonline.com/common";
+  const redirectUri = window.location.origin;
+
+  if (!clientId) {
     throw new Error("MSAL non configuré (VITE_MS_CLIENT_ID manquant). Configure l’app dans Azure AD.");
   }
 
-  let account: AccountInfo | null = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0] || null;
+  return {
+    auth: {
+      clientId,
+      authority,
+      redirectUri,
+    },
+  };
+};
+
+const getMsalInstance = (): PublicClientApplication => {
+  const config = createMsalConfig();
+  const key = `${config.auth.clientId}|${config.auth.authority}|${config.auth.redirectUri}`;
+
+  if (!msalInstance || msalConfigKey !== key) {
+    msalInstance = new PublicClientApplication(config);
+    msalConfigKey = key;
+  }
+
+  return msalInstance;
+};
+
+async function getGraphAccessToken(): Promise<string> {
+  const client = getMsalInstance();
+
+  let account: AccountInfo | null = client.getActiveAccount() || client.getAllAccounts()[0] || null;
 
   if (!account) {
-    const loginResult: AuthenticationResult = await msalInstance.loginPopup(loginRequest);
+    const loginResult: AuthenticationResult = await client.loginPopup(loginRequest);
     account = loginResult.account;
-    msalInstance.setActiveAccount(account);
+    client.setActiveAccount(account);
   }
 
   const tokenResult =
-    (await msalInstance
+    (await client
       .acquireTokenSilent({
         ...loginRequest,
         account,
       })
-      .catch(() => msalInstance.acquireTokenPopup(loginRequest))) as AuthenticationResult;
+      .catch(() => client.acquireTokenPopup(loginRequest))) as AuthenticationResult;
 
   return tokenResult.accessToken;
 }
@@ -199,21 +224,39 @@ export function initFacebookSdk(appId: string) {
   fjs.parentNode?.insertBefore(js, fjs);
 }
 
+let facebookLoginPromise: Promise<void> | null = null;
+let facebookLoggedIn = false;
+
 async function ensureFacebookLogin(scopes = "public_profile") {
-  await new Promise<void>((resolve, reject) => {
+  if (facebookLoggedIn) return;
+  if (facebookLoginPromise) return facebookLoginPromise;
+
+  facebookLoginPromise = new Promise<void>((resolve, reject) => {
     window.FB.getLoginStatus((response: any) => {
       if (response.status === "connected") {
+        facebookLoggedIn = true;
         resolve();
       } else {
         window.FB.login(
           (resp: any) => {
-            if (resp.authResponse) resolve();
-            else reject(new Error("Facebook login cancelled."));
+            if (resp.authResponse) {
+              facebookLoggedIn = true;
+              resolve();
+            } else {
+              facebookLoginPromise = null;
+              reject(new Error("Facebook login cancelled."));
+            }
           },
           { scope: scopes },
         );
       }
     });
+  });
+
+  return facebookLoginPromise.finally(() => {
+    if (!facebookLoggedIn) {
+      facebookLoginPromise = null;
+    }
   });
 }
 
@@ -227,7 +270,16 @@ export async function callFacebookPagePostsTool(params: { page_id: string; limit
     };
   }
 
-  await ensureFacebookLogin("public_profile,pages_read_engagement");
+  try {
+    await ensureFacebookLogin("public_profile,pages_read_engagement");
+  } catch (err) {
+    console.error("Facebook login error:", err);
+    return {
+      content:
+        "Connexion à Facebook annulée ou impossible. Je ne peux pas récupérer les posts de la page.",
+      sources: [],
+    };
+  }
 
   const posts = await new Promise<any[]>((resolve, reject) => {
     window.FB.api(
