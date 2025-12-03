@@ -10,14 +10,7 @@ import type {
   ReasoningTrace,
   SpeechState,
 } from "../brain/MonGarsBrainService";
-
-export interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp?: number;
-  error?: boolean;
-}
+import type { Message } from "../../types";
 
 interface ChatContextType {
   messages: Message[];

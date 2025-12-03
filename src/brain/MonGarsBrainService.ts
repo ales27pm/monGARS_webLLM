@@ -1,9 +1,8 @@
 import { webLLMService } from "../services/WebLLMService";
 import type { ChatMessage } from "../services/WebLLMService.types";
-import type { Message } from "../context/ChatContext";
 import { EmbeddingMemory } from "../../memory";
 import { decideNextAction } from "../../decisionEngine";
-import type { Config, Message as ContextMessage, MLCEngine } from "../../types";
+import type { Config, MLCEngine, Message } from "../../types";
 import type { SemanticMemoryClient } from "../../contextEngine";
 import { DEFAULT_MODEL_ID } from "../../models";
 
@@ -116,18 +115,6 @@ class MonGarsBrainService {
     };
   }
 
-  private mapToContextMessage(message: Message): ContextMessage {
-    return {
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      timestamp:
-        typeof message.timestamp === "number"
-          ? message.timestamp
-          : Date.now(),
-    };
-  }
-
   private listeners: Set<Listener> = new Set();
 
   /**
@@ -185,6 +172,7 @@ class MonGarsBrainService {
         id: nextId(),
         role: "assistant",
         content: "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        timestamp: Date.now(),
         error: true,
       };
       this.messages = [...this.messages, errorMessage];
@@ -269,6 +257,7 @@ class MonGarsBrainService {
         id: nextId(),
         role: "assistant",
         content: `Désolé, une erreur s'est produite : ${message}`,
+        timestamp: Date.now(),
         error: true,
       };
       this.messages = [...this.messages, errorMessage];
@@ -363,13 +352,25 @@ class MonGarsBrainService {
         return;
       }
 
-      const historyForContext = this.messages.map((msg) =>
-        this.mapToContextMessage(msg),
+      const historyForContext = this.messages.reduce<Message[]>(
+        (acc, msg) => {
+          const alreadyAdded = acc.some((entry) => entry.id === msg.id);
+          if (alreadyAdded) return acc;
+
+          if (msg.id === userMessage.id) {
+            acc.push(userMessage);
+          } else {
+            acc.push(msg);
+          }
+
+          return acc;
+        },
+        [],
       );
 
       const decision = await decideNextAction(
         engine,
-        this.mapToContextMessage(userMessage),
+        userMessage,
         historyForContext,
         DEFAULT_TRACE_CONFIG,
         this.buildSemanticMemoryClient(),
