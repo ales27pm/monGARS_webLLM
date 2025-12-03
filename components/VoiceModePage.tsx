@@ -147,11 +147,10 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
                   />
                 </button>
                 <div className="absolute -bottom-10 w-full flex items-center justify-center gap-1">
-                  {[...Array(8)].map((_, idx) => (
-                    stopRecording();
-                    stopSpeaking();
-                  };
-                }, [stopRecording, stopSpeaking]);
+                  {Array.from({ length: 8 }).map((_, idx) => (
+                    <span
+                      key={idx}
+                      className={`voice-bar ${
                         isSpeaking
                           ? "voice-bar-speaking"
                           : listeningActive
