@@ -16,6 +16,10 @@ interface ChatContextType {
   messages: Message[];
   sendMessage: (text: string) => Promise<void>;
   resetConversation: () => void;
+  startSpeechCapture: () => Promise<void>;
+  stopSpeechCapture: () => void;
+  speakText: (text: string) => Promise<void>;
+  stopSpeechOutput: () => void;
   isGenerating: boolean;
 
   // Extra state exposed from the brain layer for richer UIs.
@@ -44,6 +48,19 @@ const defaultValue: ChatContextType = {
     isRecording: false,
     isPlaying: false,
     lastError: null,
+    lastTranscript: "",
+  },
+  async startSpeechCapture(): Promise<void> {
+    console.warn("ChatContext.startSpeechCapture called outside of provider.");
+  },
+  stopSpeechCapture() {
+    console.warn("ChatContext.stopSpeechCapture called outside of provider.");
+  },
+  async speakText(_text: string): Promise<void> {
+    console.warn("ChatContext.speakText called outside of provider.");
+  },
+  stopSpeechOutput() {
+    console.warn("ChatContext.stopSpeechOutput called outside of provider.");
   },
   isSpeaking: false,
   isRecording: false,
@@ -62,6 +79,10 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     isBusy,
     sendUserMessage,
     resetConversation,
+    startSpeechCapture,
+    stopSpeechCapture,
+    speakText,
+    stopSpeechOutput,
     reasoningTrace,
     memoryStats,
     speechState,
@@ -78,6 +99,10 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
       messages,
       sendMessage: sendUserMessage,
       resetConversation,
+      startSpeechCapture,
+      stopSpeechCapture,
+      speakText,
+      stopSpeechOutput,
       isGenerating: isBusy,
       reasoningTrace,
       memoryStats,
@@ -90,6 +115,10 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
       messages,
       sendUserMessage,
       resetConversation,
+      startSpeechCapture,
+      stopSpeechCapture,
+      speakText,
+      stopSpeechOutput,
       isBusy,
       reasoningTrace,
       memoryStats,

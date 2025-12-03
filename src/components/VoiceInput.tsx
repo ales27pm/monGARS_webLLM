@@ -3,14 +3,14 @@ import { palette } from "../theme";
 import type { SpeechState } from "../brain/MonGarsBrainService";
 
 interface VoiceInputProps {
-  onSpeak: (text: string) => void;
+  onCapture: () => void;
   speechState?: SpeechState;
   disabled?: boolean;
   busy?: boolean;
 }
 
 const VoiceInput: React.FC<VoiceInputProps> = ({
-  onSpeak,
+  onCapture,
   speechState,
   disabled = false,
   busy = false,
@@ -78,7 +78,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
         type="button"
         onClick={() => {
           if (disabled || busy) return;
-          onSpeak("Test voix capturée");
+          onCapture();
         }}
         style={{
           background: palette.accent,
