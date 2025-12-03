@@ -30,7 +30,7 @@ const gpuTone: Record<GpuCheckResult, string> = {
 };
 
 const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { messages, sendMessage } = useContext(ChatContext);
+  const { messages, sendMessage, isGenerating } = useContext(ChatContext);
   const [gpuStatus, setGpuStatus] = useState<GpuCheckResult>("none");
   const [checkingGpu, setCheckingGpu] = useState(false);
 
@@ -68,51 +68,82 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <View style={styles.heroHeaderRow}>
           <View>
             <Text style={styles.eyebrow}>MON GARS</Text>
-            <Text style={styles.title}>Assistant privé sur tous tes appareils.</Text>
+            <Text style={styles.title}>
+              Assistant privé sur tous tes appareils.
+            </Text>
             <Text style={styles.subtitle}>
-              Compose, parle ou navige à la voix. L'IA s'exécute localement pour protéger tes données.
+              Compose, parle ou navige à la voix. L'IA s'exécute localement pour
+              protéger tes données.
             </Text>
           </View>
-          <View style={[styles.statusPill, { borderColor: gpuTone[gpuStatus] }]}> 
+          <View
+            style={[styles.statusPill, { borderColor: gpuTone[gpuStatus] }]}
+          >
             {checkingGpu ? (
               <ActivityIndicator color={palette.text} />
             ) : (
-              <Text style={[styles.statusText, { color: gpuTone[gpuStatus] }]}>{gpuLabel[gpuStatus]}</Text>
+              <Text style={[styles.statusText, { color: gpuTone[gpuStatus] }]}>
+                {gpuLabel[gpuStatus]}
+              </Text>
             )}
             <Text style={styles.statusCaption}>{gpuSubtitle}</Text>
           </View>
         </View>
         <View style={styles.actionsRow}>
-          <QuickAction label="Voice" description="Mode mains libres" onPress={() => navigation.navigate("Voice")} />
-          <QuickAction label="Settings" description="Modèles & mémoire" onPress={() => navigation.navigate("Settings")} />
-          <QuickAction label="Reasoning" description="Visualiser les chaines" onPress={() => navigation.navigate("Reasoning")} />
-          <QuickAction label="Capabilities" description="Forces & limites" onPress={() => navigation.navigate("Capabilities")} />
+          <QuickAction
+            label="Voice"
+            description="Mode mains libres"
+            onPress={() => navigation.navigate("Voice")}
+          />
+          <QuickAction
+            label="Settings"
+            description="Modèles & mémoire"
+            onPress={() => navigation.navigate("Settings")}
+          />
+          <QuickAction
+            label="Reasoning"
+            description="Visualiser les chaines"
+            onPress={() => navigation.navigate("Reasoning")}
+          />
+          <QuickAction
+            label="Capabilities"
+            description="Forces & limites"
+            onPress={() => navigation.navigate("Capabilities")}
+          />
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.chatContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.chatContainer}
+        showsVerticalScrollIndicator={false}
+      >
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Prêt à discuter</Text>
             <Text style={styles.emptySubtitle}>
-              Envoie un message texte ou utilise le mode voix. L'assistant s'adapte aux mobiles, TV et desktop.
+              Envoie un message texte ou utilise le mode voix. L'assistant
+              s'adapte aux mobiles, TV et desktop.
             </Text>
           </View>
         ) : (
           messages.map((msg) => <ChatBubble key={msg.id} message={msg} />)
         )}
       </ScrollView>
-      <InputBar onSend={sendMessage} />
+      <InputBar onSend={sendMessage} disabled={isGenerating} />
     </View>
   );
 };
 
-const QuickAction: React.FC<{ label: string; description: string; onPress: () => void }> = ({
-  label,
-  description,
-  onPress,
-}) => (
-  <TouchableOpacity style={styles.quickAction} onPress={onPress} accessibilityRole="button">
+const QuickAction: React.FC<{
+  label: string;
+  description: string;
+  onPress: () => void;
+}> = ({ label, description, onPress }) => (
+  <TouchableOpacity
+    style={styles.quickAction}
+    onPress={onPress}
+    accessibilityRole="button"
+  >
     <Text style={styles.quickActionLabel}>{label}</Text>
     <Text style={styles.quickActionDescription}>{description}</Text>
   </TouchableOpacity>
@@ -120,7 +151,12 @@ const QuickAction: React.FC<{ label: string; description: string; onPress: () =>
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: palette.background },
-  hero: { padding: 16, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border },
+  hero: {
+    padding: 16,
+    backgroundColor: palette.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
   heroHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -133,7 +169,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 1,
   },
-  title: { color: palette.text, fontSize: 22, fontWeight: "800", marginTop: 4, marginBottom: 6 },
+  title: {
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: "800",
+    marginTop: 4,
+    marginBottom: 6,
+  },
   subtitle: { color: palette.muted, fontSize: 14, maxWidth: 520 },
   statusPill: {
     minWidth: 170,
@@ -171,7 +213,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  emptyTitle: { color: palette.text, fontWeight: "700", fontSize: 18, marginBottom: 8 },
+  emptyTitle: {
+    color: palette.text,
+    fontWeight: "700",
+    fontSize: 18,
+    marginBottom: 8,
+  },
   emptySubtitle: { color: palette.muted, fontSize: 14 },
 });
 

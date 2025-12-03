@@ -3,16 +3,17 @@ import { View, TextInput, Button, StyleSheet } from "react-native";
 import { palette } from "../theme";
 
 interface InputBarProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<void>;
+  disabled?: boolean;
 }
 
-const InputBar: React.FC<InputBarProps> = ({ onSend }) => {
+const InputBar: React.FC<InputBarProps> = ({ onSend, disabled = false }) => {
   const [text, setText] = useState("");
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    await onSend(trimmed);
     setText("");
   };
 
@@ -26,8 +27,14 @@ const InputBar: React.FC<InputBarProps> = ({ onSend }) => {
         onChangeText={setText}
         onSubmitEditing={handleSend}
         returnKeyType="send"
+        editable={!disabled}
       />
-      <Button title="Envoyer" onPress={handleSend} color={palette.accent} />
+      <Button
+        title="Envoyer"
+        onPress={handleSend}
+        color={palette.accent}
+        disabled={disabled}
+      />
     </View>
   );
 };
