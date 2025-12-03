@@ -47,6 +47,8 @@ function updateNoiseFloor(
   rms: number,
   frameCount: number,
 ): number {
+  // `frameCount` should represent the number of frames already included in `prev`.
+  // The next RMS sample is folded in as the (frameCount + 1)th frame.
   return (prev * frameCount + rms) / (frameCount + 1);
 }
 
@@ -135,7 +137,7 @@ export function useTurnDetection({
         noiseFloorRef.current = updateNoiseFloor(
           noiseFloorRef.current,
           rms,
-          calibrationFramesRef.current,
+          calibrationFramesRef.current - 1,
         );
 
         if (calibrationFramesRef.current >= resolvedConfig.calibrationFrames) {
@@ -172,7 +174,8 @@ export function useTurnDetection({
         }
 
         silenceStartedAtRef.current = silenceStartedAtRef.current ?? now;
-        const elapsedSinceSpeech = now - (lastVoiceDetectedAtRef.current ?? now);
+        const elapsedSinceSpeech =
+          now - (lastVoiceDetectedAtRef.current ?? now);
         const silenceDuration = now - silenceStartedAtRef.current;
 
         if (
