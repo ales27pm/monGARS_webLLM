@@ -575,6 +575,15 @@ export type DecisionHints = {
   freshDataHint?: string | null;
 };
 
+const formatToolSpecPrompt = (config: Config) => {
+  const searchBase = config.searchApiBase || "https://api.duckduckgo.com";
+  const providerLabel = `Recherche web DuckDuckGo via ${searchBase}`;
+
+  return config.toolSearchEnabled
+    ? `${providerLabel} (GET ?q=...&format=json&no_html=1). Utilise search pour les données récentes, sinon réponds directement.`
+    : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
+};
+
 export const buildDecisionMessages = (
   inputText: string,
   recentHistory: Message[],
@@ -690,23 +699,21 @@ export async function decideNextActionFromMessages(
   freshDataHint?: string | null,
   signal?: AbortSignal,
 ): Promise<{ action: "respond" | "search"; query: string | null; plan: string; rationale: string }> {
-  const planningUserMessage = messagesForPlanning.find(
-    (msg) => msg.role === "user",
-  );
+  const planningUserMessage = [...messagesForPlanning]
+    .reverse()
+    .find((msg) => msg.role === "user");
 
   const planningContent = planningUserMessage?.content ?? "";
+  const planningHistory = messagesForPlanning
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .map((msg) => ({ role: msg.role, content: msg.content }));
 
-  const decisionMessages = [
-    { role: "system", content: DECISION_SYSTEM_PROMPT },
-    {
-      role: "user",
-      content:
-        `${planningContent}\n\n` +
-        `${freshDataHint ? `Indice automatique: ${freshDataHint}.` : "Indice automatique: aucun besoin particulier de données fraîches détecté."}\n` +
-        `Outil disponible: ${toolSpecPrompt}\n` +
-        "Réponds UNIQUEMENT en JSON compact {\"action\":\"search|respond\",\"query\":\"...\",\"plan\":\"...\",\"rationale\":\"...\",\"response\":\"...\"} sans texte hors JSON.",
-    },
-  ];
+  const decisionMessages = buildDecisionMessages(
+    planningContent,
+    planningHistory,
+    toolSpecPrompt,
+    freshDataHint ? { freshDataHint } : undefined,
+  );
 
   const decisionCompletion = await engine.chat.completions.create({
     messages: decisionMessages,
@@ -743,9 +750,7 @@ export async function decideNextAction(
     externalEvidence: externalEvidence ?? null,
   });
 
-  const toolSpecPrompt = config.toolSearchEnabled
-    ? `Recherche web DuckDuckGo via ${config.searchApiBase || "https://api.duckduckgo.com"} (GET ?q=...&format=json&no_html=1). Utilise search pour les données récentes, sinon réponds directement.`
-    : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
+  const toolSpecPrompt = formatToolSpecPrompt(config);
 
   const freshDataHint =
     context.slices.debug.taskCategory === "needs_web"
