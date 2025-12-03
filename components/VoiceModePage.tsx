@@ -1,12 +1,6 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useSpeech } from "../useSpeech";
+import React from "react";
 import type { EngineStatus, Message } from "../types";
+import { useVoiceConversationLoop } from "../useVoiceConversationLoop";
 
 interface VoiceModePageProps {
   onClose: () => void;
@@ -17,26 +11,6 @@ interface VoiceModePageProps {
   isGenerating: boolean;
 }
 
-type VoiceTurn = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-};
-
-function buildTurns(messages: Message[]): VoiceTurn[] {
-  const relevant = messages.filter(
-    (msg) => msg.role === "user" || msg.role === "assistant",
-  );
-
-  return relevant.slice(-8).map((msg) => ({
-    id: msg.id,
-    role: msg.role as VoiceTurn["role"],
-    content: msg.content,
-    timestamp: msg.timestamp,
-  }));
-}
-
 export const VoiceModePage: React.FC<VoiceModePageProps> = ({
   onClose,
   onSend,
@@ -45,21 +19,14 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
   engineStatus,
   isGenerating,
 }) => {
-  const [autoLoop, setAutoLoop] = useState(true);
-  const [autoReadAloud, setAutoReadAloud] = useState(true);
-  const [queuedTranscripts, setQueuedTranscripts] = useState<string[]>([]);
-
-  const lastAssistantMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      if (msg.role === "assistant" && msg.content?.trim()) {
-        return msg;
-      }
-    }
-    return null;
-  }, [messages]);
-
   const {
+    autoLoop,
+    setAutoLoop,
+    autoReadAloud,
+    setAutoReadAloud,
+    queuedTranscripts,
+    setQueuedTranscripts,
+    lastAssistantMessage,
     startRecording,
     stopRecording,
     speak,
@@ -72,126 +39,19 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
     vocalModeEnabled,
     setVocalModeEnabled,
     turnState,
-  } = useSpeech({
-    initialVocalModeEnabled: true,
-    turnDetectionConfig: {
-      silenceHoldMs: 1200,
-      minVoiceDurationMs: 320,
-    },
-    onTranscription: (transcript) => {
-      const sanitized = transcript.trim();
-      if (!sanitized) return;
-
-      setQueuedTranscripts((prev) => {
-        const updated = [...prev, sanitized];
-        const MAX_QUEUE = 6;
-        return updated.length > MAX_QUEUE
-          ? updated.slice(updated.length - MAX_QUEUE)
-          : updated;
-      });
-    },
-  });
-
-  const spokenAssistantIdRef = useRef<string | null>(null);
-
-  const recentTurns = useMemo(() => buildTurns(messages), [messages]);
-
-  useEffect(() => {
-    if (!isRecording) {
-      return;
-    }
-    stopSpeaking();
-  }, [isRecording, stopSpeaking]);
-
-  const consumeQueue = useCallback(async () => {
-    if (!queuedTranscripts.length || isGenerating) return;
-
-    const [next, ...rest] = queuedTranscripts;
-    setQueuedTranscripts(rest);
-    await onSend(next);
-  }, [isGenerating, onSend, queuedTranscripts]);
-
-  useEffect(() => {
-    if (!isGenerating) {
-      void consumeQueue();
-    }
-  }, [consumeQueue, isGenerating]);
-
-  useEffect(() => {
-    if (!lastAssistantMessage || isGenerating || !autoReadAloud) return;
-    if (lastAssistantMessage.id === spokenAssistantIdRef.current) return;
-
-    stopSpeaking();
-    spokenAssistantIdRef.current = lastAssistantMessage.id;
-    void speak(lastAssistantMessage.content);
-  }, [autoReadAloud, isGenerating, lastAssistantMessage, speak, stopSpeaking]);
-
-  useEffect(() => {
-    if (!autoLoop || engineStatus !== "ready") return;
-    if (isRecording || isTranscribing || isSpeaking || isGenerating) return;
-
-    startRecording();
-  }, [
-    autoLoop,
+    micStateLabel,
+    handleManualSend,
+    handleClose,
+    listeningActive,
+    queueCount,
+    recentTurns,
+  } = useVoiceConversationLoop({
+    onClose,
+    onSend,
+    messages,
     engineStatus,
     isGenerating,
-    isRecording,
-    isSpeaking,
-    isTranscribing,
-    startRecording,
-  ]);
-
-  useEffect(() => {
-    if (engineStatus === "ready") return;
-
-    stopRecording();
-    stopSpeaking();
-  }, [engineStatus, stopRecording, stopSpeaking]);
-
-  useEffect(() => {
-    return () => {
-      stopRecording();
-    };
-  }, [stopRecording]);
-
-  const micStateLabel = useMemo(() => {
-    if (error) return "Erreur micro";
-    if (isSpeaking) return "Lecture de la réponse";
-    if (isGenerating) return "Génération en cours";
-    if (isTranscribing) return "Transcription locale";
-    if (isRecording) {
-      switch (turnState) {
-        case "calibrating":
-          return "Calibration du bruit";
-        case "monitoring":
-          return "Écoute active";
-        case "listening":
-          return "Voix détectée";
-        case "silenceHold":
-          return "Fin de tour de parole";
-        default:
-          return "Enregistrement";
-      }
-    }
-    return "Prêt pour une nouvelle question";
-  }, [error, isGenerating, isRecording, isSpeaking, isTranscribing, turnState]);
-
-  const handleManualSend = async () => {
-    if (lastTranscript.trim()) {
-      setQueuedTranscripts([]);
-      await onSend(lastTranscript.trim());
-    }
-  };
-
-  const handleClose = () => {
-    stopRecording();
-    stopSpeaking();
-    setQueuedTranscripts([]);
-    onClose();
-  };
-
-  const listeningActive = isRecording || turnState === "listening";
-  const queueCount = queuedTranscripts.length;
+  });
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xl text-white flex flex-col">
