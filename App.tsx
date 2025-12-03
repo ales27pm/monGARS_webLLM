@@ -40,6 +40,10 @@ import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine
 import { getModelShortLabel } from "./models";
 import { rebuildContextWithExternalEvidence } from "./contextEngine";
 import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
+import { type ToolSource } from "./toolClients";
+import { performExternalTool, type ExternalToolResult } from "./externalTools";
+import { mergeSourcesByUrl } from "./sourcesUtils";
+import { useFacebookSdk } from "./useFacebookSdk";
 
 declare global {
   interface Navigator {
@@ -47,7 +51,7 @@ declare global {
   }
 }
 
-type Source = { title: string; url: string };
+type Source = ToolSource;
 
 const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
 
@@ -211,6 +215,8 @@ Règles :
   useEffect(() => {
     document.documentElement.classList.toggle("dark", config.theme === "dark");
   }, [config.theme]);
+
+  useFacebookSdk(import.meta.env.VITE_FB_APP_ID);
 
   useEffect(() => {
     try {
@@ -495,10 +501,12 @@ Règles :
   const [sources, setSources] = useState<Source[]>([]);
 
   const addSource = (title: string, url: string) => {
-    setSources((prev) => {
-      if (prev.some((s) => s.url === url)) return prev;
-      return [...prev, { title, url }];
-    });
+    setSources((prev) => mergeSourcesByUrl(prev, [{ title, url }]));
+  };
+
+  const mergeSources = (newSources: Source[]) => {
+    if (!newSources.length) return;
+    setSources((prev) => mergeSourcesByUrl(prev, newSources));
   };
 
   const clearConversation = useCallback(() => {
@@ -728,13 +736,15 @@ Règles :
         const query = decision.query as string;
         setSearchQuery(query);
 
-        const searchResult = await performWebSearch(
-          query,
+        const searchResult: ExternalToolResult = await performExternalTool(
+          { decisionQuery: query, userInput: userMessage.content || trimmedInput },
+          performWebSearch,
           abortControllerRef.current?.signal,
         );
         setSearchQuery(null);
         externalEvidence = searchResult.content;
         searchSources = searchResult.sources;
+        mergeSources(searchSources);
       }
 
       const contextForAnswer = shouldSearch
