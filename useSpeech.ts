@@ -381,17 +381,12 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       if (hasNativeTts && window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
-    } catch (err) {
-      console.warn("Unable to cancel native speech synthesis", err);
-    }
-
-    try {
       resetPlayback();
     } catch (err) {
-      console.warn("Unable to reset playback", err);
+      console.warn("Error while stopping speech", err);
+    } finally {
+      setIsSpeaking(false);
     }
-
-    setIsSpeaking(false);
   }, [hasNativeTts, resetPlayback]);
 
   const speak = useCallback(
