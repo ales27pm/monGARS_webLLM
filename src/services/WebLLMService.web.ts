@@ -125,7 +125,10 @@ class WebBackend implements MonGarsEngine {
   }
 
   getRuntimeStatsText = async (): Promise<string> => {
-    const engine = await this.ensureEngine();
+    if (!this.currentEngine) {
+      return "Moteur non initialisé";
+    }
+    const engine = this.currentEngine;
     if (typeof engine.runtimeStatsText === "function") {
       return engine.runtimeStatsText();
     }
