@@ -29,8 +29,16 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       content: trimmed,
     };
 
+    const uniqueId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const userMessage: Message = {
+      id: `${uniqueId()}-user`,
+      role: "user",
+      content: trimmed,
+    };
+
     const assistantReply: Message = {
-      id: `${Date.now()}-assistant`,
+      id: `${uniqueId()}-assistant`,
       role: "assistant",
       content: "Thanks for your message. I'll use the on-device WebLLM pipeline to respond soon.",
     };
