@@ -105,11 +105,16 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
               <i className="fa-solid fa-xmark" /> Fermer
             </button>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
-          <div className="relative bg-white/5 border border-white/10 rounded-3xl p-6 overflow-hidden shadow-xl">
-            <div className="absolute inset-0 voice-panel-gradient" />
+              const next = queuedTranscripts[0];
+              try {
+                await onSend(next);
+                setQueuedTranscripts((prev) => prev.slice(1));
+              } catch (err) {
+                console.error("Failed to send transcript from queue:", err);
+                // The transcript is not removed from the queue, allowing for a retry.
+              }
+            }, [isGenerating, onSend, queuedTranscripts]);
             <div className="relative flex flex-col items-center gap-6">
               <div className="relative w-44 h-44 flex items-center justify-center">
                 <div
