@@ -25,9 +25,29 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
       overflow: "hidden",
     }}
   >
-    <div className="voice-glow" style={{ position: "absolute", inset: 0 }} />
-    <div className="voice-glow-secondary" style={{ position: "absolute", inset: 0 }} />
-    <div className="voice-grid" style={{ position: "absolute", inset: 0, opacity: 0.3 }} />
+    {/* Safely scoped decorative layers to avoid UI obstruction if global CSS is missing */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        background:
+          "radial-gradient(60% 60% at 50% 50%, rgba(255,255,255,0.04) 0%, transparent 60%)",
+      }}
+      aria-hidden
+    />
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        backgroundImage:
+          "linear-gradient(transparent 24px, rgba(255,255,255,0.05) 25px), linear-gradient(90deg, transparent 24px, rgba(255,255,255,0.05) 25px)",
+        backgroundSize: "25px 25px, 25px 25px",
+        opacity: 0.25,
+      }}
+      aria-hidden
+    />
     <div
       style={{
         position: "relative",
