@@ -1,0 +1,80 @@
+# Global settings
+project_root: .
+python_bin: python
+run_logs_dir: ./factory_runs
+model_profile: monGARS_webLLM
+global_env:
+  HF_HUB_DISABLE_TELEMETRY: "1"
+
+# --- 1) Dataset pipeline ---
+datasets:
+  enabled: true
+  script: scripts/dataset_prep.py
+  args:
+    output_dir: ./prepared_data
+    langs: "en,fr,fr-CA"
+    max_per_dataset: "50000"
+    metadata_file: dataset_metadata.json
+    cache_dir: ./hf_cache
+    seed: "42"
+  env:
+    HF_HOME: ./hf_cache
+  timeout_seconds: 3600
+
+# --- 2) Embedding / llm2vec pipeline ---
+embeddings:
+  enabled: true
+  script: scripts/embeddings_train.py
+  args:
+    config: configs/embeddings_llm2vec.yml
+  env:
+    TOKENIZERS_PARALLELISM: "false"
+  timeout_seconds: 7200
+
+# --- 3) Unsloth SFT pipeline (per-task) ---
+unsloth_sft:
+  enabled: true
+  script: scripts/unsloth_train.py
+  env:
+    WANDB_PROJECT: mongars-unsloth
+  tasks:
+    dialog:
+      args:
+        config: configs/sft_dialog.yml
+        run_id: dialog_v1
+      env:
+        CUDA_VISIBLE_DEVICES: "0"
+    reasoning:
+      args:
+        config: configs/sft_reasoning.yml
+        run_id: reasoning_v1
+      env:
+        CUDA_VISIBLE_DEVICES: "1"
+    retrieval_controller:
+      args:
+        config: configs/sft_retrieval.yml
+        run_id: retrieval_v1
+      env:
+        CUDA_VISIBLE_DEVICES: "0,1"
+
+# --- 4) Export & quantisation pipeline ---
+export:
+  enabled: true
+  script: scripts/export_and_quantize.py
+  args:
+    config: configs/export_quant.yml
+  timeout_seconds: 1800
+
+# --- 5) MLC packaging (required) ---
+mlc_export:
+  enabled: true
+  script: scripts/export_to_mlc.py
+  args:
+    # This script should call into https://github.com/mlc-ai/mlc-llm tooling
+    # and package the latest GGUF into MLC runtime artifacts.
+    config: configs/export_mlc.yml
+  env:
+    # Example: pin a specific GPU for compilation or set TVM tuning caches.
+    CUDA_VISIBLE_DEVICES: "0"
+    TVM_CACHE_DIR: ./mlc_tvm_cache
+  timeout_seconds: 2400
