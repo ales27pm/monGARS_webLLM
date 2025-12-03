@@ -124,7 +124,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     setRecordingFlags(true, true);
 
     const RecognitionCtor =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
     const recognition = new RecognitionCtor();
     recognition.lang = "fr-FR";
     recognition.continuous = false;
@@ -236,11 +237,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       streamRef.current = null;
       setActiveStream(null);
     }
-  }, [
-    onTranscription,
-    transcribeBlob,
-    vocalModeEnabled,
-  ]);
+  }, [onTranscription, transcribeBlob, vocalModeEnabled]);
 
   const startRecording = useCallback(async () => {
     if (isRecording || isTranscribing) {
@@ -379,6 +376,19 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     [getAudioContext, resetPlayback],
   );
 
+  const stopSpeaking = useCallback(() => {
+    try {
+      if (hasNativeTts && window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+      }
+      resetPlayback();
+    } catch (err) {
+      console.warn("Error while stopping speech", err);
+    } finally {
+      setIsSpeaking(false);
+    }
+  }, [hasNativeTts, resetPlayback]);
+
   const speak = useCallback(
     async (text: string) => {
       if (!text.trim()) {
@@ -404,6 +414,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     startRecording,
     stopRecording,
     speak,
+    stopSpeaking,
     isRecording,
     isTranscribing,
     isSpeaking,
