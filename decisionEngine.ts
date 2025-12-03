@@ -400,23 +400,34 @@ const normalizeDecisionCore = (
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
   );
 
+  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
+  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
+
+  const normalizedFallbackPlan = normalizePlan(fallbackPlan);
+  const normalizedFallbackRationale = fallbackRationale
+    ? stripListPrefix(fallbackRationale)
+    : undefined;
+
   const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
     query: fallbackQueryMatch?.[1]?.trim() || undefined,
-    plan: normalizePlan(),
-    rationale: "Fallback décision non structurée.",
+    plan: normalizedFallbackPlan,
+    rationale:
+      normalizedFallbackRationale ||
+      (fallbackAction === "search"
+        ? "JSON invalide : bascule vers la recherche avec sauvegarde des champs disponibles."
+        : "JSON invalide : réponse directe issue de la sortie non structurée."),
     response: fallbackResponseMatch?.[1]?.trim(),
   } satisfies Omit<DecisionResult, "warnings">;
-
-  const fallbackPlan = raw.match(/plan\s*[:=]\s*([^\n]+)/i)?.[1];
-  const fallbackRationale = raw.match(/rationale\s*[:=]\s*([^\n]+)/i)?.[1];
 
   const meta: NormalizationMeta = {
     raw,
     source: "fallback",
     parsingIssues: decision.success ? [] : decision.error.issues,
-    hadPlan: false,
-    hadRationale: false,
+    providedStepCount: fallbackPlan ? countPlanSteps(normalizedFallbackPlan) : undefined,
+    planReformatted: !!fallbackPlan && fallbackPlan.trim() !== normalizedFallbackPlan,
+    hadPlan: !!fallbackPlan?.trim(),
+    hadRationale: !!normalizedFallbackRationale,
     actionAfterSwitch: fallbackAction as "search" | "respond",
     finalAction: fallbackAction as "search" | "respond",
     hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
