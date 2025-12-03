@@ -103,18 +103,30 @@ class WebBackend implements MonGarsEngine {
       const signal = options.signal;
       const stream = (async function* () {
         let aborted = signal?.aborted ?? false;
-        const onAbort = () => {
-          aborted = true;
+
+        const closeIterator = async () => {
           if (typeof (chunks as any)?.return === "function") {
             try {
-              (chunks as any).return();
+              await (chunks as any).return();
             } catch {}
           }
         };
+
+        const onAbort = () => {
+          aborted = true;
+        };
+
         if (signal) signal.addEventListener("abort", onAbort, { once: true });
         try {
+          if (aborted) {
+            await closeIterator();
+            throw new DOMException("Aborted", "AbortError");
+          }
           for await (const chunk of chunks as AsyncIterable<any>) {
-            if (aborted) break;
+            if (aborted) {
+              await closeIterator();
+              throw new DOMException("Aborted", "AbortError");
+            }
             const content = chunk?.choices?.[0]?.delta?.content ?? "";
             if (content) {
               yield content;
