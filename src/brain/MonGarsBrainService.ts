@@ -167,7 +167,9 @@ class MonGarsBrainService {
         this.broadcast();
 
         for await (const chunk of completion.stream) {
-          assistantMessage.content += chunk;
+          const lastIndex = this.messages.length - 1;
+          const updatedMessage = { ...this.messages[lastIndex], content: this.messages[lastIndex].content + chunk };
+          this.messages = [...this.messages.slice(0, lastIndex), updatedMessage];
           this.broadcast();
         }
       } else {
