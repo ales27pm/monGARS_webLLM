@@ -394,7 +394,12 @@ const normalizeDecisionCore = (
     return { result, meta };
   }
 
-  const fallbackAction: "search" | "respond" = "search";
+  const actionMatch = raw.match(/action\s*[:=]\s*"?(search|respond)"?/i);
+  const actionFromText = actionMatch?.[1]?.toLowerCase() as
+    | "search"
+    | "respond"
+    | undefined;
+
   const fallbackQueryMatch = raw.match(/query\s*[:=]\s*"?([^"}]+)"?/i);
   const fallbackResponseMatch = raw.match(
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
@@ -407,6 +412,29 @@ const normalizeDecisionCore = (
   const normalizedFallbackRationale = fallbackRationale
     ? stripListPrefix(fallbackRationale)
     : undefined;
+
+  const planSuggestedAction = detectActionHint(fallbackPlan);
+  const rationaleSuggestedAction = detectActionHint(fallbackRationale);
+
+  let fallbackAction: "search" | "respond";
+  if (actionFromText === "respond") {
+    fallbackAction = "respond";
+  } else if (actionFromText === "search" && fallbackQueryMatch?.[1]?.trim()) {
+    fallbackAction = "search";
+  } else if (fallbackResponseMatch?.[1]?.trim()) {
+    fallbackAction = "respond";
+  } else if (fallbackQueryMatch?.[1]?.trim()) {
+    fallbackAction = "search";
+  } else {
+    fallbackAction = "respond";
+  }
+
+  const actionFlip: NormalizationMeta["actionFlip"] =
+    actionFromText && actionFromText !== fallbackAction
+      ? actionFromText === "search"
+        ? "searchToRespond"
+        : "respondToSearch"
+      : undefined;
 
   const result: Omit<DecisionResult, "warnings"> = {
     action: fallbackAction as "search" | "respond",
@@ -428,8 +456,10 @@ const normalizeDecisionCore = (
     planReformatted: !!fallbackPlan && fallbackPlan.trim() !== normalizedFallbackPlan,
     hadPlan: !!fallbackPlan?.trim(),
     hadRationale: !!normalizedFallbackRationale,
+    actionBeforeSwitch: actionFromText,
     actionAfterSwitch: fallbackAction as "search" | "respond",
     finalAction: fallbackAction as "search" | "respond",
+    actionFlip,
     hasQuery: !!fallbackQueryMatch?.[1]?.trim(),
     hasResponse: !!fallbackResponseMatch?.[1]?.trim(),
     responseMissing:
@@ -442,8 +472,8 @@ const normalizeDecisionCore = (
       fallbackAction === "search" && !fallbackQueryMatch?.[1]?.trim(),
     fallbackResponseMissing:
       fallbackAction === "respond" && !fallbackResponseMatch?.[1]?.trim(),
-    planSuggestedAction: detectActionHint(fallbackPlan),
-    rationaleSuggestedAction: detectActionHint(fallbackRationale),
+    planSuggestedAction,
+    rationaleSuggestedAction,
   };
 
   return { result, meta };
