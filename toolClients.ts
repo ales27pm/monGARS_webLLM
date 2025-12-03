@@ -15,11 +15,7 @@ export async function callWeatherTool(params: {
 }): Promise<ToolResult> {
   const units = params.units ?? "metric";
   if (!OPENWEATHER_API_KEY) {
-    return {
-      content:
-        "La météo n’est pas configurée (clé OPENWEATHER manquante). Ajoute VITE_OPENWEATHER_API_KEY dans ton .env.",
-      sources: [],
-    };
+    return fetchOpenMeteoWeather(params.city, units);
   }
 
   const url = new URL("https://api.openweathermap.org/data/2.5/weather");
@@ -59,6 +55,112 @@ export async function callWeatherTool(params: {
       {
         title: `OpenWeather – ${city}`,
         url: `https://openweathermap.org/find?q=${encodeURIComponent(city)}`,
+      },
+    ],
+  };
+}
+
+const openMeteoWeatherCode: Record<number, string> = {
+  0: "Ciel dégagé",
+  1: "Peu nuageux",
+  2: "Partiellement nuageux",
+  3: "Couvert",
+  45: "Brouillard",
+  48: "Brouillard givrant",
+  51: "Bruine légère",
+  53: "Bruine modérée",
+  55: "Bruine dense",
+  56: "Bruine verglaçante légère",
+  57: "Bruine verglaçante dense",
+  61: "Pluie faible",
+  63: "Pluie modérée",
+  65: "Pluie forte",
+  66: "Pluie verglaçante légère",
+  67: "Pluie verglaçante forte",
+  71: "Neige faible",
+  73: "Neige modérée",
+  75: "Neige forte",
+  77: "Grains de neige",
+  80: "Averses de pluie faibles",
+  81: "Averses de pluie modérées",
+  82: "Averses de pluie violentes",
+  85: "Averses de neige faibles",
+  86: "Averses de neige fortes",
+  95: "Orage",
+  96: "Orage avec grésil",
+  99: "Orage fort avec grésil",
+};
+
+async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial"): Promise<ToolResult> {
+  const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  geoUrl.searchParams.set("name", city);
+  geoUrl.searchParams.set("count", "1");
+  geoUrl.searchParams.set("language", "fr");
+  geoUrl.searchParams.set("format", "json");
+
+  const geoRes = await fetch(geoUrl.toString());
+  if (!geoRes.ok) {
+    return {
+      content: `Géocodage Open-Meteo indisponible pour "${city}" (code ${geoRes.status}).`,
+      sources: [],
+    };
+  }
+
+  const geoData = await geoRes.json();
+  const result = Array.isArray(geoData.results) ? geoData.results[0] : null;
+  if (!result) {
+    return {
+      content: `Impossible de localiser "${city}" via Open-Meteo.`,
+      sources: [],
+    };
+  }
+
+  const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  forecastUrl.searchParams.set("latitude", String(result.latitude));
+  forecastUrl.searchParams.set("longitude", String(result.longitude));
+  forecastUrl.searchParams.set(
+    "current",
+    "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code",
+  );
+  forecastUrl.searchParams.set("timezone", "auto");
+  forecastUrl.searchParams.set("language", "fr");
+  if (units === "imperial") {
+    forecastUrl.searchParams.set("temperature_unit", "fahrenheit");
+    forecastUrl.searchParams.set("wind_speed_unit", "mph");
+  }
+
+  const forecastRes = await fetch(forecastUrl.toString());
+  if (!forecastRes.ok) {
+    return {
+      content: `Météo Open-Meteo indisponible pour "${city}" (code ${forecastRes.status}).`,
+      sources: [],
+    };
+  }
+
+  const forecastData = await forecastRes.json();
+  const current = forecastData.current || {};
+  const unitLabel = units === "metric" ? "°C" : "°F";
+  const windLabel = units === "metric" ? "m/s" : "mph";
+
+  const description = openMeteoWeatherCode[current.weather_code];
+  const parts: string[] = [];
+  if (description) parts.push(`Conditions: ${description}`);
+  if (current.temperature_2m != null) parts.push(`Température: ${current.temperature_2m}${unitLabel}`);
+  if (current.apparent_temperature != null)
+    parts.push(`Ressenti: ${current.apparent_temperature}${unitLabel}`);
+  if (current.relative_humidity_2m != null) parts.push(`Humidité: ${current.relative_humidity_2m}%`);
+  if (current.wind_speed_10m != null) parts.push(`Vent: ${current.wind_speed_10m} ${windLabel}`);
+  if (current.wind_direction_10m != null) parts.push(`Direction du vent: ${current.wind_direction_10m}°`);
+
+  const locationLabel = [result.name, result.admin1, result.country].filter(Boolean).join(", ");
+  const displayName = locationLabel || city;
+
+  return {
+    content: `Météo (Open-Meteo) pour ${displayName}:\n` + parts.join("\n"),
+    sources: [
+      {
+        title: `Open-Meteo – ${displayName}`,
+        url: forecastUrl.toString(),
       },
     ],
   };
