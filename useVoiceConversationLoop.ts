@@ -96,12 +96,20 @@ export function useVoiceConversationLoop({
   }, [isRecording, stopSpeaking]);
 
   const consumeQueue = useCallback(async () => {
-    if (!queuedTranscripts.length || isGenerating) return;
+    if (isGenerating) return;
+    let nextToSend: string | undefined;
 
-    const [next, ...rest] = queuedTranscripts;
-    setQueuedTranscripts(rest);
-    await onSend(next);
-  }, [isGenerating, onSend, queuedTranscripts]);
+    setQueuedTranscripts((prev) => {
+      if (prev.length === 0) return prev;
+      const [next, ...rest] = prev;
+      nextToSend = next;
+      return rest;
+    });
+
+    if (nextToSend) {
+      await onSend(nextToSend);
+    }
+  }, [isGenerating, onSend, setQueuedTranscripts]);
 
   useEffect(() => {
     if (!isGenerating) {
