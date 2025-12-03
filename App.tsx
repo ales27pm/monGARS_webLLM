@@ -48,7 +48,6 @@ import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
 import { appendReasoningLog } from "./reasoningLog";
 import { type ToolSource } from "./toolClients";
 import { performExternalTool, type ExternalToolResult } from "./externalTools";
-import { mergeSourcesByUrl } from "./sourcesUtils";
 import { useFacebookSdk } from "./useFacebookSdk";
 
 declare global {
@@ -58,6 +57,40 @@ declare global {
 }
 
 type Source = ToolSource;
+
+const isValidHttpUrl = (value: string | null | undefined) => {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const sanitizeSources = (
+  rawSources: Array<Partial<Source>> | null | undefined,
+): Source[] => {
+  if (!rawSources || rawSources.length === 0) return [];
+
+  const unique = new Map<string, Source>();
+
+  rawSources.forEach((source) => {
+    const title = source?.title?.trim() || "";
+    const url = source?.url?.trim() || "";
+    if (!isValidHttpUrl(url)) return;
+
+    const normalizedUrl = new URL(url).toString();
+    if (unique.has(normalizedUrl)) return;
+
+    unique.set(normalizedUrl, {
+      title: title || normalizedUrl,
+      url: normalizedUrl,
+    });
+  });
+
+  return Array.from(unique.values());
+};
 
 const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
 
@@ -136,6 +169,11 @@ const App: React.FC = () => {
     return Date.now();
   }, z.number());
 
+  const sourceSchema = z.object({
+    title: z.string().trim().optional(),
+    url: z.string().trim().optional(),
+  });
+
   const messageSchema = z.object({
     id: z.string(),
     role: z.enum(["assistant", "tool", "user"]).catch("user"),
@@ -148,10 +186,17 @@ const App: React.FC = () => {
         typeof value === "number" && Number.isFinite(value) ? value : undefined,
       z.number().optional(),
     ),
+    sources: z
+      .array(sourceSchema)
+      .optional()
+      .transform((sources) => sanitizeSources(sources)),
   });
 
-  const initialConfig = useMemo<Config>(
-    () => ({
+  const initialConfig = useMemo<Config>(() => {
+    const storedSearchBase =
+      localStorage.getItem("mg_search_api_base") || DEFAULT_SEARCH_API_BASE;
+
+    return {
       modelId: localStorage.getItem("mg_model") || MODEL_ID,
       systemPrompt:
         localStorage.getItem("mg_system") ||
@@ -177,12 +222,9 @@ Règles :
       semanticMemoryMaxEntries: getNumberSetting("mg_semantic_max_entries", 96),
       semanticMemoryNeighbors: getNumberSetting("mg_semantic_neighbors", 4),
       toolSearchEnabled: getBooleanSetting("mg_tool_search_enabled", true),
-      searchApiBase:
-        localStorage.getItem("mg_search_api_base") ||
-        "https://api.duckduckgo.com",
-    }),
-    [],
-  );
+      searchApiBase: normalizeSearchApiBase(storedSearchBase),
+    };
+  }, []);
 
   const [config, setConfig] = useState<Config>(initialConfig);
 
@@ -556,20 +598,8 @@ Règles :
     };
   }, [isGenerating, engine, engineStatus]);
 
-  const [sources, setSources] = useState<Source[]>([]);
-
-  const addSource = (title: string, url: string) => {
-    setSources((prev) => mergeSourcesByUrl(prev, [{ title, url }]));
-  };
-
-  const mergeSources = (newSources: Source[]) => {
-    if (!newSources.length) return;
-    setSources((prev) => mergeSourcesByUrl(prev, newSources));
-  };
-
   const clearConversation = useCallback(() => {
     setMessages([]);
-    setSources([]);
     setReasoningTrace(null);
     localStorage.removeItem("mg_conversation_default");
     addToast(
@@ -601,7 +631,7 @@ Règles :
     }
 
     try {
-      const apiBase = config.searchApiBase || "https://api.duckduckgo.com";
+      const apiBase = normalizeSearchApiBase(config.searchApiBase);
       const rawUrl = `${apiBase}?q=${encodeURIComponent(query)}&format=json&no_html=1`;
       const proxiedUrl = rawUrl.startsWith("http")
         ? `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`
@@ -626,7 +656,6 @@ Règles :
         if (!seenUrls.has(url)) {
           seenUrls.add(url);
           sources.push({ title: text, url });
-          addSource(text, url);
         }
       };
 
@@ -661,7 +690,7 @@ Règles :
         content = `Je n'ai pas trouvé de résultats clairs pour "${query}".`;
       }
 
-      return { content, sources };
+      return { content, sources: sanitizeSources(sources) };
     } catch (error: any) {
       console.error("Web search error:", error);
       addToast(
@@ -805,7 +834,6 @@ Règles :
         setSearchQuery(null);
         externalEvidence = searchResult.content;
         searchSources = searchResult.sources;
-        mergeSources(searchSources);
       }
 
       const contextForAnswer = shouldSearch
@@ -841,15 +869,7 @@ Règles :
         aiMessagePlaceholder.id,
       );
 
-      if (shouldSearch && searchSources.length > 0) {
-        const uniqueSources = Array.from(
-          new Map(searchSources.map((s) => [s.url, s])).values(),
-        );
-        const sourcesText =
-          "\n\nSources utilisées:\n" +
-          uniqueSources.map((src) => `- ${src.title} (${src.url})`).join("\n");
-        finalAiResponse += sourcesText;
-      }
+      const uniqueSources = shouldSearch ? sanitizeSources(searchSources) : [];
 
       if (!finalAiResponse.trim()) {
         console.warn("Réponse finale vide, déclenchement d'une relance.");
@@ -897,7 +917,7 @@ Règles :
       setMessages((prev) => {
         const next = prev.map((msg) =>
           msg.id === aiMessagePlaceholder.id
-            ? { ...msg, content: finalAiResponse }
+            ? { ...msg, content: finalAiResponse, sources: uniqueSources }
             : msg,
         );
         updatedMessages = next;
@@ -911,6 +931,7 @@ Règles :
       await recordExchange(userMessage, {
         ...aiMessagePlaceholder,
         content: finalAiResponse,
+        sources: uniqueSources,
       });
     } catch (err: any) {
       console.error("Chat / tool error:", err);

@@ -1,4 +1,6 @@
 
+import type { ToolSource } from "./toolClients";
+
 export type Role = 'user' | 'assistant' | 'tool';
 
 export interface Message {
@@ -7,6 +9,7 @@ export interface Message {
   content: string | null;
   timestamp: number;
   tokens?: number;
+  sources?: ToolSource[];
 }
 
 export type EngineStatus = 'idle' | 'loading' | 'ready' | 'error';
