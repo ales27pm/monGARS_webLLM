@@ -53,24 +53,29 @@ const InputBar: React.FC<InputBarProps> = ({
         }}
         disabled={disabled}
       />
-      <button
-        type="button"
-        onClick={handleSend}
-        style={{
-          background: palette.accent,
-          color: "white",
-          border: "none",
-          padding: "12px 16px",
-          borderRadius: 10,
-          cursor: "pointer",
-          fontWeight: 700,
-          opacity: disabled || isLoading ? 0.6 : 1,
-          cursor: disabled || isLoading ? "not-allowed" : "pointer",
-        }}
-        disabled={disabled || isLoading}
-      >
-        {isLoading ? "En cours…" : "Envoyer"}
-      </button>
+      {(() => {
+        const sendingBlocked = disabled || isLoading;
+        const cursorStyle = sendingBlocked ? "not-allowed" : "pointer";
+        return (
+          <button
+            type="button"
+            onClick={handleSend}
+            style={{
+              background: palette.accent,
+              color: "white",
+              border: "none",
+              padding: "12px 16px",
+              borderRadius: 10,
+              fontWeight: 700,
+              opacity: sendingBlocked ? 0.6 : 1,
+              cursor: cursorStyle,
+            }}
+            disabled={sendingBlocked}
+          >
+            {isLoading ? "En cours…" : "Envoyer"}
+          </button>
+        );
+      })()}
       {isLoading ? (
         <div style={{ color: palette.muted, fontSize: 12, alignSelf: "center" }}>
           Génération en cours…
