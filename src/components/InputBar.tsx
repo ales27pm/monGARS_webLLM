@@ -64,9 +64,10 @@ const InputBar: React.FC<InputBarProps> = ({
           borderRadius: 10,
           cursor: "pointer",
           fontWeight: 700,
-          opacity: disabled ? 0.6 : 1,
+          opacity: disabled || isLoading ? 0.6 : 1,
+          cursor: disabled || isLoading ? "not-allowed" : "pointer",
         }}
-        disabled={disabled}
+        disabled={disabled || isLoading}
       >
         {isLoading ? "En cours…" : "Envoyer"}
       </button>
