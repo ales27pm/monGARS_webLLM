@@ -71,7 +71,8 @@ export const InputBar: React.FC<InputBarProps> = ({
         <button
           onClick={() => setVocalModeEnabled((prev) => !prev)}
           title="Mode vocal avancé : arrêt automatique sur silence"
-          className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+          disabled={isRecording}
+          className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
             vocalModeEnabled
               ? "bg-primary-DEFAULT text-white hover:bg-primary-hover"
               : "text-slate-700 dark:text-slate-200 hover:bg-primary-light/10"
@@ -139,6 +140,7 @@ export const InputBar: React.FC<InputBarProps> = ({
               <span className="flex items-center gap-1 text-primary-DEFAULT dark:text-primary-light">
                 <i className="fa-solid fa-person-chalkboard"></i>
                 {turnState === "calibrating" && <span>Calibration bruit...</span>}
+                {turnState === "monitoring" && <span>Écoute active</span>}
                 {turnState === "listening" && <span>Voix détectée</span>}
                 {turnState === "silenceHold" && <span>Silence détecté</span>}
               </span>
