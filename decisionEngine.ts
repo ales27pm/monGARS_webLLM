@@ -21,6 +21,19 @@ const buildFallbackSearchQuery = (
   return normalized.slice(0, maxLength);
 };
 
+const extractQuestionForFallback = (content?: string | null) => {
+  if (!content) return null;
+
+  const marker = "[QUESTION UTILISATEUR]";
+  const markerIndex = content.indexOf(marker);
+  const candidate =
+    markerIndex >= 0 ? content.slice(markerIndex + marker.length) : content;
+
+  const questionOnly = candidate.split(/\n\s*Tâche:/)[0] ?? candidate;
+
+  return questionOnly.trim();
+};
+
 const SAFETY_INTENT_CHECK =
   "Vérifie sécurité/intention : réponds aux sujets informatifs grand public (ex. chiens de traîneau, météo locale, fonctionnement d'un produit courant) quand aucune action nuisible n'est demandée; refuse clairement si l'utilisateur cherche à fabriquer/utiliser des armes, malwares, contournements de sécurité ou toute aide dangereuse.";
 
@@ -719,6 +732,7 @@ export async function decideNextActionFromMessages(
     .find((msg) => msg.role === "user");
 
   const planningContent = planningUserMessage?.content;
+  const planningQuestion = extractQuestionForFallback(planningContent);
   const planningHistory = messagesForPlanning
     .slice(-MAX_CONTEXT_MESSAGES)
     .map((msg) => ({ role: msg.role, content: msg.content }));
@@ -750,7 +764,7 @@ export async function decideNextActionFromMessages(
   let query = normalized.action === "search" ? normalizedQuery || null : null;
 
   if ((normalized.action === "search" && !query) || searchWasFlipped) {
-    const fallbackQuery = buildFallbackSearchQuery(planningContent);
+    const fallbackQuery = buildFallbackSearchQuery(planningQuestion);
     if (fallbackQuery) {
       query = fallbackQuery;
       action = "search";
