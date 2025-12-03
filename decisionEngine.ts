@@ -394,7 +394,7 @@ const normalizeDecisionCore = (
     return { result, meta };
   }
 
-  const fallbackAction = /search/i.test(raw) ? "search" : "respond";
+  const fallbackAction: "search" | "respond" = "search";
   const fallbackQueryMatch = raw.match(/query\s*[:=]\s*"?([^"}]+)"?/i);
   const fallbackResponseMatch = raw.match(
     /response\s*[:=]\s*"?([^}]+?)"?\s*(?:,|$)/i,
