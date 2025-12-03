@@ -1,4 +1,5 @@
 import type { Message, Role } from "./types";
+import { MEMORY_SEARCH_CONFIG, lexicalOverlapScore } from "./memoryConfig";
 
 export type MemoryEntry = {
   id: string;
@@ -119,7 +120,10 @@ export class EmbeddingMemory {
     this.pushEntry(entry);
   }
 
-  async search(query: string, limit = 4): Promise<ScoredMemoryEntry[]> {
+  async search(
+    query: string,
+    limit = MEMORY_SEARCH_CONFIG.defaultLimit,
+  ): Promise<ScoredMemoryEntry[]> {
     const content = query.trim();
     if (!content || this.entries.length === 0) return [];
 
@@ -141,14 +145,14 @@ export class EmbeddingMemory {
         const entry = snapshot[result.index];
         if (!entry) return null;
 
-        const lexicalBoost = this.lexicalOverlapScore(content, entry.content);
+        const lexicalBoost = lexicalOverlapScore(content, entry.content);
         const temporalBoost = this.recencyBoost(entry.timestamp, now);
         const roleBoost = this.roleBoost(entry.role);
 
         const blendedScore =
-          result.score * 0.65 +
-          lexicalBoost * 0.2 +
-          temporalBoost * 0.1 +
+          result.score * MEMORY_SEARCH_CONFIG.rerankWeights.embedding +
+          lexicalBoost * MEMORY_SEARCH_CONFIG.rerankWeights.lexical +
+          temporalBoost * MEMORY_SEARCH_CONFIG.rerankWeights.recency +
           roleBoost;
 
         return {
@@ -158,7 +162,9 @@ export class EmbeddingMemory {
       })
       .filter(
         (entry): entry is ScoredMemoryEntry =>
-          entry !== null && Number.isFinite(entry.score) && entry.score > 0.05,
+          entry !== null &&
+          Number.isFinite(entry.score) &&
+          entry.score > MEMORY_SEARCH_CONFIG.minScore,
       )
       .sort((a, b) => b.score - a.score);
 
@@ -173,31 +179,6 @@ export class EmbeddingMemory {
         return `- (${entry.role}, ${date}, ${(entry.score * 100).toFixed(0)}%) ${entry.content}`;
       })
       .join("\n");
-  }
-
-  private lexicalOverlapScore(query: string, content: string): number {
-    const queryTokens = this.tokenize(query);
-    const contentTokens = this.tokenize(content);
-    if (queryTokens.size === 0 || contentTokens.size === 0) return 0;
-
-    let overlap = 0;
-    for (const token of queryTokens) {
-      if (contentTokens.has(token)) overlap += 1;
-    }
-
-    const denominator = queryTokens.size + contentTokens.size - overlap;
-    return denominator === 0 ? 0 : overlap / denominator;
-  }
-
-  private tokenize(text: string): Set<string> {
-    return new Set(
-      (
-        text
-          ?.normalize("NFKD")
-          .toLowerCase()
-          .match(/[\p{L}\d]{3,}/gu) || []
-      ).map((token) => token),
-    );
   }
 
   private recencyBoost(timestamp: number, now: number): number {

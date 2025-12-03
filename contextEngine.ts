@@ -3,6 +3,7 @@ import {
   buildRequestProfile,
   type RequestProfile,
 } from "./contextProfiling";
+import { MEMORY_SEARCH_CONFIG, lexicalOverlapScore } from "./memoryConfig";
 import type { Message, Config, MLCEngine } from "./types";
 
 /**
@@ -220,29 +221,7 @@ function clampText(text: string, maxTokens: number): string {
   return text.slice(0, maxChars) + "…";
 }
 
-function lexicalOverlapScore(a: string, b: string): number {
-  const tokenize = (text: string) =>
-    new Set(
-      (
-        text
-          ?.normalize("NFKD")
-          .toLowerCase()
-          .match(/[\p{L}\d]{3,}/gu) || []
-      ).map((t) => t),
-    );
-
-  const tokensA = tokenize(a);
-  const tokensB = tokenize(b);
-  if (tokensA.size === 0 || tokensB.size === 0) return 0;
-
-  let overlap = 0;
-  for (const token of tokensA) {
-    if (tokensB.has(token)) overlap += 1;
-  }
-
-  const denominator = tokensA.size + tokensB.size - overlap;
-  return denominator === 0 ? 0 : overlap / denominator;
-}
+const CONTEXTUAL_HINTS_MAX_TOKENS = 800;
 
 function deduplicateMemoryResults(
   entries: ScoredMemoryEntry[],
@@ -269,8 +248,11 @@ function diversifyMemoryResults(
   const selected: ScoredMemoryEntry[] = [];
 
   for (const entry of entries) {
+    if (!entry.content) continue;
     const nearDuplicate = selected.some(
-      (existing) => lexicalOverlapScore(existing.content, entry.content) > 0.72,
+      (existing) =>
+        lexicalOverlapScore(existing.content, entry.content) >
+        MEMORY_SEARCH_CONFIG.lexicalOverlapThreshold,
     );
     if (nearDuplicate) continue;
 
@@ -280,6 +262,8 @@ function diversifyMemoryResults(
 
   return selected;
 }
+
+const MEMORY_RESULTS_LIMIT = MEMORY_SEARCH_CONFIG.defaultLimit;
 
 function buildMemoryQueries(
   userText: string,
@@ -315,7 +299,11 @@ function buildMemoryQueries(
     .slice(0, 5);
 }
 
-function composeSystemPrompt(config: Config, contextualHints: string) {
+function composeSystemPrompt(config: Config, contextualHintsRaw: string) {
+  const contextualHints = clampText(
+    contextualHintsRaw || "",
+    CONTEXTUAL_HINTS_MAX_TOKENS,
+  );
   const systemFromConfig =
     typeof config.systemPrompt === "string" ? config.systemPrompt : null;
 
@@ -475,7 +463,7 @@ async function buildMemorySlice(
   try {
     const queryResults = await Promise.all(
       queries.map(async (query) => {
-        const searchResult = await memory.search(query, 8);
+        const searchResult = await memory.search(query, MEMORY_RESULTS_LIMIT);
         return searchResult.results || [];
       }),
     );
@@ -494,7 +482,7 @@ async function buildMemorySlice(
     const deduped = deduplicateMemoryResults(flattened).sort(
       (a, b) => b.score - a.score,
     );
-    const diversified = diversifyMemoryResults(deduped, 8);
+    const diversified = diversifyMemoryResults(deduped, MEMORY_RESULTS_LIMIT);
     const hitCount = diversified.length;
 
     const raw = diversified
