@@ -1,19 +1,22 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
 import { buildContext } from "./contextEngine";
-import type {
-  ContextBuildResult,
-  SemanticMemoryClient,
-} from "./contextEngine";
+import type { ContextBuildResult, SemanticMemoryClient } from "./contextEngine";
 import type { Config, Message, MLCEngine } from "./types";
 import { DEFAULT_MODEL_ID } from "./models";
 
 export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
-const buildFallbackSearchQuery = (text: string, maxLength = 160) => {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length < 4) return null;
+const MIN_FALLBACK_QUERY_LENGTH = 4;
+const MAX_FALLBACK_QUERY_LENGTH = 160;
+
+const buildFallbackSearchQuery = (
+  text?: string | null,
+  maxLength = MAX_FALLBACK_QUERY_LENGTH,
+) => {
+  const normalized = (text ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length < MIN_FALLBACK_QUERY_LENGTH) return null;
 
   return normalized.slice(0, maxLength);
 };
@@ -63,7 +66,9 @@ export const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
+      "\n",
+    );
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
@@ -165,6 +170,8 @@ export type DecisionResult = {
     rationaleSuggestedAction?: NormalizationMeta["rationaleSuggestedAction"];
   };
 };
+
+export type DecisionDiagnostics = DecisionResult["diagnostics"];
 
 const formatZodIssues = (issues: z.ZodIssue[]) =>
   issues
@@ -574,6 +581,8 @@ export type NextActionDecision = {
   query: string | null;
   plan: string;
   rationale: string;
+  diagnostics: DecisionDiagnostics;
+  trace: DecisionTrace;
   debugContext: ContextBuildResult["slices"]["debug"];
   context: ContextBuildResult;
   notes: string[];
@@ -592,7 +601,7 @@ const formatToolSpecPrompt = (config: Config) => {
     : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
 };
 
-export const buildDecisionMessages = (
+export const buildDecisionPrompt = (
   inputText: string,
   recentHistory: Message[],
   toolSpecPrompt: string,
@@ -605,7 +614,7 @@ export const buildDecisionMessages = (
       : "Indice automatique : aucun besoin de données fraîches détecté."
     : "Indice automatique : aucune détection automatique fournie.";
 
-  return [
+  const messages = [
     { role: "system", content: DECISION_SYSTEM_PROMPT },
     {
       role: "user",
@@ -618,7 +627,16 @@ export const buildDecisionMessages = (
         `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
     },
   ];
+
+  return { messages, contextualHints, freshDataLine };
 };
+
+export const buildDecisionMessages = (
+  inputText: string,
+  recentHistory: Message[],
+  toolSpecPrompt: string,
+  hints?: DecisionHints,
+) => buildDecisionPrompt(inputText, recentHistory, toolSpecPrompt, hints).messages;
 
 export const buildAnswerHistory = (
   decisionPlan: string,
@@ -638,7 +656,8 @@ export const buildAnswerHistory = (
 ];
 
 const normalizeModelJsonOutput = (output: unknown): string => {
-  const text = typeof output === "string" ? output : JSON.stringify(output ?? "");
+  const text =
+    typeof output === "string" ? output : JSON.stringify(output ?? "");
 
   let cleaned = text.trim();
 
@@ -672,6 +691,14 @@ const normalizeModelJsonOutput = (output: unknown): string => {
   return (candidate ?? cleaned).trim();
 };
 
+export type DecisionTrace = {
+  decisionMessages: { role: string; content: string | null }[];
+  modelRawDecision: string;
+  normalizedDecision: DecisionResult;
+  contextualHints: string;
+  freshDataLine: string;
+};
+
 export async function decideNextActionFromMessages(
   engine: MLCEngine,
   messagesForPlanning: { role: string; content: string }[],
@@ -684,25 +711,27 @@ export async function decideNextActionFromMessages(
   plan: string;
   rationale: string;
   notes: string[];
+  diagnostics: DecisionResult["diagnostics"];
+  trace: DecisionTrace;
 }> {
   const planningUserMessage = [...messagesForPlanning]
     .reverse()
     .find((msg) => msg.role === "user");
 
-  const planningContent = planningUserMessage?.content ?? "";
+  const planningContent = planningUserMessage?.content;
   const planningHistory = messagesForPlanning
     .slice(-MAX_CONTEXT_MESSAGES)
     .map((msg) => ({ role: msg.role, content: msg.content }));
 
-  const decisionMessages = buildDecisionMessages(
-    planningContent,
+  const decisionPrompt = buildDecisionPrompt(
+    planningContent || "",
     planningHistory,
     toolSpecPrompt,
     freshDataHint ? { freshDataHint } : undefined,
   );
 
   const decisionCompletion = await engine.chat.completions.create({
-    messages: decisionMessages,
+    messages: decisionPrompt.messages,
     temperature: 0.2,
     max_tokens: 256,
     stream: false,
@@ -711,14 +740,14 @@ export async function decideNextActionFromMessages(
 
   const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
   const normalized = normalizeDecision(raw);
+  const normalizedQuery = normalized.query?.trim();
   const notes: string[] = [...normalized.warnings];
 
   const searchWasFlipped =
-    normalized.diagnostics.actionFlip === "searchToRespond" &&
-    !normalized.query;
+    normalized.diagnostics.actionFlip === "searchToRespond" && !normalizedQuery;
 
-  let action = normalized.action;
-  let query = normalized.action === "search" ? normalized.query ?? null : null;
+  let { action } = normalized;
+  let query = normalized.action === "search" ? normalizedQuery || null : null;
 
   if ((normalized.action === "search" && !query) || searchWasFlipped) {
     const fallbackQuery = buildFallbackSearchQuery(planningContent);
@@ -742,6 +771,14 @@ export async function decideNextActionFromMessages(
     plan: normalized.plan,
     rationale: normalized.rationale,
     notes,
+    diagnostics: normalized.diagnostics,
+    trace: {
+      decisionMessages: decisionPrompt.messages,
+      modelRawDecision: raw,
+      normalizedDecision: normalized,
+      contextualHints: decisionPrompt.contextualHints,
+      freshDataLine: decisionPrompt.freshDataLine,
+    },
   };
 }
 
@@ -787,6 +824,8 @@ export async function decideNextAction(
     query,
     plan: normalizedDecision.plan,
     rationale: normalizedDecision.rationale,
+    diagnostics: normalizedDecision.diagnostics,
+    trace: normalizedDecision.trace,
     notes: normalizedDecision.notes,
     debugContext: context.slices.debug,
     context,

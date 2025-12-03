@@ -1,6 +1,6 @@
 import type { Message } from "./types";
 
-type RequestProfile = {
+export type RequestProfile = {
   intent: "information" | "code" | "analysis";
   requiresFreshData: boolean;
   ambiguitySignals: string[];
