@@ -686,16 +686,45 @@ const normalizeNextActionDecision = (
 export async function decideNextActionFromMessages(
   engine: MLCEngine,
   messagesForPlanning: { role: string; content: string }[],
+  toolSpecPrompt: string,
+  freshDataHint?: string | null,
+  signal?: AbortSignal,
 ): Promise<{ action: "respond" | "search"; query: string | null; plan: string; rationale: string }> {
+  const planningUserMessage = messagesForPlanning.find(
+    (msg) => msg.role === "user",
+  );
+
+  const planningContent = planningUserMessage?.content ?? "";
+
+  const decisionMessages = [
+    { role: "system", content: DECISION_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content:
+        `${planningContent}\n\n` +
+        `${freshDataHint ? `Indice automatique: ${freshDataHint}.` : "Indice automatique: aucun besoin particulier de données fraîches détecté."}\n` +
+        `Outil disponible: ${toolSpecPrompt}\n` +
+        "Réponds UNIQUEMENT en JSON compact {\"action\":\"search|respond\",\"query\":\"...\",\"plan\":\"...\",\"rationale\":\"...\",\"response\":\"...\"} sans texte hors JSON.",
+    },
+  ];
+
   const decisionCompletion = await engine.chat.completions.create({
-    messages: messagesForPlanning,
-    temperature: 0.1,
-    max_tokens: 512,
+    messages: decisionMessages,
+    temperature: 0.2,
+    max_tokens: 256,
     stream: false,
+    signal,
   });
 
   const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
-  return normalizeNextActionDecision(raw);
+  const normalized = normalizeDecision(raw);
+
+  return {
+    action: normalized.action,
+    query: normalized.action === "search" ? normalized.query ?? null : null,
+    plan: normalized.plan,
+    rationale: normalized.rationale,
+  };
 }
 
 export async function decideNextAction(
@@ -714,13 +743,34 @@ export async function decideNextAction(
     externalEvidence: externalEvidence ?? null,
   });
 
+  const toolSpecPrompt = config.toolSearchEnabled
+    ? `Recherche web DuckDuckGo via ${config.searchApiBase || "https://api.duckduckgo.com"} (GET ?q=...&format=json&no_html=1). Utilise search pour les données récentes, sinon réponds directement.`
+    : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
+
+  const freshDataHint =
+    context.slices.debug.taskCategory === "needs_web"
+      ? "La requête semble dépendre de données récentes (scores, actualités, mises à jour)."
+      : null;
+
   const normalizedDecision = await decideNextActionFromMessages(
     engine,
     context.messagesForPlanning,
+    toolSpecPrompt,
+    freshDataHint,
   );
 
+  const action: "respond" | "search" =
+    normalizedDecision.action === "search" && config.toolSearchEnabled
+      ? "search"
+      : "respond";
+
+  const query = action === "search" ? normalizedDecision.query : null;
+
   return {
-    ...normalizedDecision,
+    action,
+    query,
+    plan: normalizedDecision.plan,
+    rationale: normalizedDecision.rationale,
     debugContext: context.slices.debug,
     context,
   } satisfies NextActionDecision;
