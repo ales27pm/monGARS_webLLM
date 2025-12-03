@@ -38,6 +38,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const {
     getAudioContext,
     sourceRef: ttsSourceRef,
@@ -165,7 +166,11 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
     try {
       setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stopStreamTracks(streamRef.current);
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      const stream = streamRef.current;
       const options: MediaRecorderOptions | undefined =
         typeof MediaRecorder !== "undefined" &&
         MediaRecorder.isTypeSupported("audio/webm")
@@ -188,7 +193,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
         if (blob.size === 0) {
           setError("Aucun audio enregistré.");
-          stopStreamTracks(stream);
+          stopStreamTracks(streamRef.current);
+          streamRef.current = null;
           return;
         }
 
@@ -201,7 +207,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
           setError("La transcription a échoué. Vérifie ton micro et réessaie.");
         } finally {
           setIsTranscribing(false);
-          stopStreamTracks(stream);
+          stopStreamTracks(streamRef.current);
+          streamRef.current = null;
           recorderRef.current = null;
         }
       };
@@ -211,7 +218,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         setActiveStream(null);
         setRecordingFlags(false, false);
         setError("L'enregistrement a été interrompu.");
-        stopStreamTracks(stream);
+        stopStreamTracks(streamRef.current);
+        streamRef.current = null;
         recorderRef.current = null;
       };
 
@@ -224,6 +232,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     } catch (err) {
       console.error("Microphone permission or initialization failed", err);
       setError("Impossible d'accéder au micro. Vérifie les permissions.");
+      stopStreamTracks(streamRef.current);
+      streamRef.current = null;
       setActiveStream(null);
     }
   }, [
