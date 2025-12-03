@@ -36,7 +36,34 @@ const ReasoningScreen: React.FC<Props> = () => {
   };
 
   useEffect(() => {
-    runGpuDetection();
+    let isMounted = true;
+
+    const safeRun = () => {
+      setGpuLoading(true);
+      setGpuError(null);
+      detectGpuMode()
+        .then((mode) => {
+          if (!isMounted) return;
+          setGpuMode(mode);
+        })
+        .catch((error: unknown) => {
+          console.warn("GPU detection failed", error);
+          if (!isMounted) return;
+          setGpuError(
+            "Impossible de confirmer WebGPU/WebGL. Le rendu bascule sur un mode texte fiable.",
+          );
+          setGpuMode("none");
+        })
+        .finally(() => {
+          if (!isMounted) return;
+          setGpuLoading(false);
+        });
+    };
+
+    safeRun();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
