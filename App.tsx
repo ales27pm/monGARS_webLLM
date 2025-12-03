@@ -738,7 +738,7 @@ Règles :
       }
 
       const contextForAnswer = shouldSearch
-        ? await rebuildContextWithExternalEvidence(currentEngine, decision.context, {
+        ? await rebuildContextWithExternalEvidence(currentEngine, {
             userMessage,
             history: conversationForDecision,
             memory: semanticMemoryClient,

@@ -611,7 +611,7 @@ export const buildAnswerHistory = (
 ) => [
   {
     role: "system",
-    content: `${config.systemPrompt}\n\n${ANSWER_GUARDRAILS}\nPlan: ${decisionPlan}`,
+    content: `${config.systemPrompt ?? ""}\n\n${ANSWER_GUARDRAILS}\nPlan: ${decisionPlan}`,
   },
   ...messages.map((m) => ({
     role: m.role === "tool" ? "assistant" : m.role,
