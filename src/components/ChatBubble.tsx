@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { palette } from "../theme";
 
 interface ChatBubbleProps {
   message: { role: string; content: string };
@@ -13,18 +14,27 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
         styles.bubble,
         {
           alignSelf: isUser ? "flex-end" : "flex-start",
-          backgroundColor: isUser ? "#2d2d2d" : "#1a1a1a",
+          backgroundColor: isUser ? palette.accent : palette.elevated,
         },
       ]}
     >
-      <Text style={styles.text}>{message.content}</Text>
+      <Text style={[styles.text, { color: isUser ? "white" : palette.text }]}>{message.content}</Text>
+      <Text style={styles.meta}>{isUser ? "Toi" : "Assistant"}</Text>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  bubble: { margin: 6, padding: 10, borderRadius: 8, maxWidth: "80%" },
-  text: { color: "#fff", fontSize: 16 },
+  bubble: {
+    margin: 6,
+    padding: 12,
+    borderRadius: 12,
+    maxWidth: "85%",
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  text: { fontSize: 16, lineHeight: 22 },
+  meta: { marginTop: 6, color: palette.muted, fontSize: 12 },
 });
 
 export default ChatBubble;

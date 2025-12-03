@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { View, TextInput, Button, StyleSheet } from "react-native";
+import { palette } from "../theme";
 
 interface InputBarProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<void>;
+  disabled?: boolean;
 }
 
-const InputBar: React.FC<InputBarProps> = ({ onSend }) => {
+const InputBar: React.FC<InputBarProps> = ({ onSend, disabled = false }) => {
   const [text, setText] = useState("");
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    await onSend(trimmed);
     setText("");
   };
 
@@ -20,26 +22,40 @@ const InputBar: React.FC<InputBarProps> = ({ onSend }) => {
       <TextInput
         style={styles.input}
         placeholder="Ask Mon Gars..."
-        placeholderTextColor="#777"
+        placeholderTextColor={palette.muted}
         value={text}
         onChangeText={setText}
         onSubmitEditing={handleSend}
         returnKeyType="send"
+        editable={!disabled}
       />
-      <Button title="Send" onPress={handleSend} color="#1E90FF" />
+      <Button
+        title="Envoyer"
+        onPress={handleSend}
+        color={palette.accent}
+        disabled={disabled}
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flexDirection: "row", padding: 8, backgroundColor: "#111" },
+  container: {
+    flexDirection: "row",
+    padding: 10,
+    backgroundColor: palette.surface,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+  },
   input: {
     flex: 1,
-    color: "#fff",
-    padding: 8,
-    marginRight: 8,
-    backgroundColor: "#222",
-    borderRadius: 4,
+    color: palette.text,
+    padding: 12,
+    marginRight: 10,
+    backgroundColor: palette.elevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
 });
 

@@ -1,57 +1,89 @@
 import React, { createContext, useCallback, useMemo, useState } from "react";
+import { webLLMService } from "../services/WebLLMService";
 
-interface Message {
+export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  error?: boolean;
 }
 
 interface ChatContextType {
   messages: Message[];
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string) => Promise<void>;
+  isGenerating: boolean;
 }
 
 export const ChatContext = createContext<ChatContextType>({
   messages: [],
-  sendMessage: () => undefined,
+  sendMessage: async () => undefined,
+  isGenerating: false,
 });
 
-export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+export const ChatProvider: React.FC<React.PropsWithChildren> = ({
+  children,
+}) => {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const sendMessage = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
 
-    const userMessage: Message = {
-      id: `${Date.now()}-user`,
-      role: "user",
-      content: trimmed,
-    };
+      if (isGenerating) return;
 
-    const uniqueId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setIsGenerating(true);
 
-    const userMessage: Message = {
-      id: `${uniqueId()}-user`,
-      role: "user",
-      content: trimmed,
-    };
+      const userMessage: Message = {
+        id: `${Date.now()}-user`,
+        role: "user",
+        content: trimmed,
+      };
 
-    const assistantReply: Message = {
-      id: `${uniqueId()}-assistant`,
-      role: "assistant",
-      content: "Thanks for your message. I'll use the on-device WebLLM pipeline to respond soon.",
-    };
+      const nextHistory = [...messages, userMessage];
+      setMessages(nextHistory);
 
-    setMessages((prev) => [...prev, userMessage, assistantReply]);
-  }, []);
+      try {
+        const assistantContent = await webLLMService.generateResponse(
+          trimmed,
+          nextHistory,
+        );
+
+        const assistantReply: Message = {
+          id: `${Date.now()}-assistant`,
+          role: "assistant",
+          content: assistantContent,
+        };
+
+        setMessages((prev) => [...prev, assistantReply]);
+      } catch (error: any) {
+        console.error("WebLLM generation failed", error);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-assistant-error`,
+            role: "assistant",
+            content:
+              error?.message ||
+              "Impossible de générer une réponse pour le moment. Vérifie la configuration du modèle et réessaie.",
+            error: true,
+          },
+        ]);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [isGenerating, messages],
+  );
 
   const value = useMemo(
     () => ({
       messages,
       sendMessage,
+      isGenerating,
     }),
-    [messages, sendMessage],
+    [messages, sendMessage, isGenerating],
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
