@@ -112,7 +112,10 @@ class WebBackend implements MonGarsEngine {
   }
 
   async reset(): Promise<void> {
-    const engine = await this.enginePromise;
+    const pendingPromise = this.enginePromise;
+    this.enginePromise = null;
+    this.currentEngine = null;
+    const engine = await pendingPromise;
     if (engine && typeof engine.dispose === "function") {
       try {
         await engine.dispose();
@@ -120,8 +123,6 @@ class WebBackend implements MonGarsEngine {
         console.warn("Erreur lors de la libération de WebLLM:", err);
       }
     }
-    this.enginePromise = null;
-    this.currentEngine = null;
   }
 
   getRuntimeStatsText = async (): Promise<string> => {
