@@ -105,8 +105,9 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
               <i className="fa-solid fa-xmark" /> Fermer
             </button>
           </div>
+        </div>
 
-              <div className="relative flex flex-col items-center gap-6">
+        <div className="relative flex flex-col items-center gap-6">
               <div className="relative w-44 h-44 flex items-center justify-center">
                 <div
                   className={`absolute inset-0 rounded-full border border-white/20 transition-opacity ${
