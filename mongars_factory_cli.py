@@ -218,8 +218,8 @@ def _parse_stage_config(
     args_raw = raw.get("args", {}) or {}
     args = {str(k): str(v) for k, v in args_raw.items()}
     env_raw = raw.get("env", {}) or {}
-    env = {str(k): str(v) for k, v in env_raw.items()}
-    timeout_raw = raw.get("timeout_seconds")
+        task_env = {str(k): str(v) for k, v in env_raw.items()}
+        tasks[name] = UnslothTaskConfig(name=name, args=args, env=task_env)
     timeout_seconds = None
     if timeout_raw is not None:
         try:
