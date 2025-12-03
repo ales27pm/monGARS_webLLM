@@ -97,19 +97,12 @@ export function useVoiceConversationLoop({
 
   const consumeQueue = useCallback(async () => {
     if (isGenerating) return;
-    let nextToSend: string | undefined;
-
-    setQueuedTranscripts((prev) => {
-      if (prev.length === 0) return prev;
-      const [next, ...rest] = prev;
-      nextToSend = next;
-  const consumeQueue = useCallback(async () => {
-    if (isGenerating) return;
 
     let nextToSend: string | undefined;
+
+    // Peek without removing; removal happens after successful send
     setQueuedTranscripts((prev) => {
       if (prev.length === 0) return prev;
-      // Peek without removing; removal happens after successful send
       nextToSend = prev[0];
       return prev;
     });
