@@ -146,10 +146,12 @@ class MonGarsBrainService {
     this.broadcast();
 
     try {
-      const history: ChatMessage[] = this.messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      }));
+      const history: ChatMessage[] = this.messages
+        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.error)
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
 
       const completion = await webLLMService.completeChat(history, {
         temperature: 0.7,
