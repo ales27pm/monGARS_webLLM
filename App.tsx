@@ -386,21 +386,20 @@ Règles :
     // Ensure disposal is serialized to avoid overlapping resets
     let inflight = (safeDisposeEngine as any)._inflight as Promise<void> | null;
     if (!inflight) {
-      // Abort any in-flight generation before resetting the engine
-      try {
-        abortControllerRef.current?.abort();
-      } catch {}
-      inflight = webLLMService
+  const disposeInflightRef = useRef<Promise<void> | null>(null);
+
+  const safeDisposeEngine = useCallback(async (): Promise<void> => {
+    if (!disposeInflightRef.current) {
+      disposeInflightRef.current = webLLMService
         .reset()
         .catch((disposeErr) => {
           console.warn("Error while disposing engine:", disposeErr);
         })
         .finally(() => {
-          (safeDisposeEngine as any)._inflight = null;
+          disposeInflightRef.current = null;
         });
-      (safeDisposeEngine as any)._inflight = inflight;
     }
-    return inflight;
+    await disposeInflightRef.current;
   }, []);
 
   const loadEngine = useCallback(
