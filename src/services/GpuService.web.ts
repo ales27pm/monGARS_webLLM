@@ -18,13 +18,19 @@ const hasWebGPU = async (): Promise<boolean> => {
 
 const hasWebGL2 = (): boolean => {
   if (typeof document === "undefined") return false;
+  let canvas: HTMLCanvasElement | null = null;
   try {
-    const canvas = document.createElement("canvas");
+    canvas = document.createElement("canvas");
     const ctx = canvas.getContext("webgl2");
     return Boolean(ctx);
   } catch (error) {
     console.warn("WebGL2 detection failed", error);
     return false;
+  } finally {
+    try {
+      canvas?.remove?.();
+    } catch {}
+    canvas = null;
   }
 };
 
