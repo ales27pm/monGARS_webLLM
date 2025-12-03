@@ -345,6 +345,14 @@ Règles :
       const existingEngine = engine;
       if (existingEngine && !forceReload) return existingEngine;
 
+      if (existingEngine && forceReload && typeof existingEngine.dispose === "function") {
+        try {
+          await existingEngine.dispose();
+        } catch (disposeErr) {
+          console.warn("Error while disposing previous engine:", disposeErr);
+        }
+      }
+
       // Wait for WebGPU support check. If unsupported, abort loading.
       if (!(await checkWebGPU())) return null;
 
@@ -434,8 +442,15 @@ Règles :
         setEngineStatus("error");
         setInitProgress({
           progress: 0,
-          text: "Moteur WebGPU relancé après une erreur interne.",
+          text: "Réinitialisation du moteur WebGPU après une erreur interne...",
         });
+        try {
+          if (engine && typeof engine.dispose === "function") {
+            await engine.dispose();
+          }
+        } catch (disposeErr) {
+          console.warn("Error while disposing failed engine:", disposeErr);
+        }
         setEngine(null);
         addToast(
           "Redémarrage du moteur",
@@ -445,6 +460,11 @@ Règles :
         try {
           const newEngine = await loadEngine(true);
           if (newEngine) {
+            addToast(
+              "Moteur relancé",
+              "Le moteur WebGPU a redémarré. Renvoyez votre dernière question pour continuer.",
+              "success",
+            );
             return true;
           }
           console.error(
@@ -452,12 +472,17 @@ Règles :
           );
         } catch (loadErr) {
           console.error("Engine recovery failed during loadEngine:", loadErr);
+          addToast(
+            "WebGPU indisponible",
+            "Le redémarrage du moteur a échoué (GPU indisponible ou onglet en arrière-plan). Recharge la page ou vérifie l'accès WebGPU.",
+            "error",
+          );
         }
         return false;
       }
       return false;
     },
-    [addToast, loadEngine],
+    [addToast, loadEngine, engine],
   );
 
   useEffect(() => {
@@ -867,8 +892,9 @@ Règles :
           msg.id === aiMessagePlaceholder.id
             ? {
                 ...msg,
-                content:
-                  "Désolé, une erreur est survenue pendant la génération. Réessaie dans un instant.",
+                content: recovered
+                  ? "Le moteur WebGPU a redémarré suite à une erreur. Merci de renvoyer votre message."
+                  : "Désolé, une erreur est survenue pendant la génération. Réessaie dans un instant.",
               }
             : msg,
         ),
