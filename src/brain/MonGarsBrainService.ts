@@ -149,24 +149,28 @@ class MonGarsBrainService {
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
       });
 
-      let assistantText = completion.text ?? "";
+      if (completion.stream) {
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: "",
+        };
+        this.messages = [...this.messages, assistantMessage];
+        this.broadcast();
 
-      // Fallback if we ever switch to streaming mode
-      if (!assistantText && completion.stream) {
-        assistantText = "";
         for await (const chunk of completion.stream) {
-          assistantText += chunk;
+          assistantMessage.content += chunk;
+          this.broadcast();
         }
+      } else {
+        const sanitized = (completion.text ?? "").trim();
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: sanitized,
+        };
+        this.messages = [...this.messages, assistantMessage];
       }
-
-      const sanitized = assistantText.trim();
-      const assistantMessage: Message = {
-        id: nextId(),
-        role: "assistant",
-        content: sanitized,
-      };
-
-      this.messages = [...this.messages, assistantMessage];
 
       // Minimal reasoning trace – can be replaced by a richer pipeline later.
       this.reasoningTrace = {
