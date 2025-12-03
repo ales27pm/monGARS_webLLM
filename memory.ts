@@ -200,6 +200,10 @@ export class EmbeddingMemory {
     return this.maxEntries;
   }
 
+  getEntryCount() {
+    return this.entries.length;
+  }
+
   clear() {
     this.entries.length = 0;
     this.cache.clear();
