@@ -431,7 +431,7 @@ const normalizeDecisionCore = (
             ? hintedAction
             : hasFallbackQuery
               ? "search"
-              : "respond";
+              : "search";
 
   const actionFlip: NormalizationMeta["actionFlip"] =
     actionFromText && actionFromText !== fallbackAction
