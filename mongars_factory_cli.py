@@ -166,16 +166,23 @@ def _load_config(config_path: Path) -> Dict[str, Any]:
             raise RuntimeError(
                 "PyYAML is required for YAML configs. Install it or provide JSON."
             )
-        return yaml.safe_load(text)
+        obj = yaml.safe_load(text)
+    else:
+        # Fallback to JSON regardless of YAML availability
+        try:
+            obj = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Failed to parse config file {config_path}. "
+                "Install PyYAML and use YAML, or provide valid JSON."
+            ) from e
 
-    # Fallback to JSON regardless of YAML availability
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
+    if not isinstance(obj, dict):
         raise RuntimeError(
-            f"Failed to parse config file {config_path}. "
-            "Install PyYAML and use YAML, or provide valid JSON."
-        ) from e
+            f"Config file {config_path} must have a mapping at the top level, "
+            f"got {type(obj).__name__} instead."
+        )
+    return obj
 
 
 def _parse_stage_config(
@@ -230,20 +237,20 @@ def _parse_unsloth_config(
 
     script = (project_root / str(script_raw)).resolve()
     env_raw = raw.get("env", {}) or {}
-    env = {str(k): str(v) for k, v in env_raw.items()}
+    global_env = {str(k): str(v) for k, v in env_raw.items()}
 
     tasks_raw = raw.get("tasks", {}) or {}
     tasks: Dict[str, UnslothTaskConfig] = {}
     for name, task_cfg in tasks_raw.items():
         args_raw = task_cfg.get("args", {}) or {}
         args = {str(k): str(v) for k, v in args_raw.items()}
-        env_raw = task_cfg.get("env", {}) or {}
-        env = {str(k): str(v) for k, v in env_raw.items()}
-        tasks[name] = UnslothTaskConfig(name=name, args=args, env=env)
+        task_env_raw = task_cfg.get("env", {}) or {}
+        task_env = {str(k): str(v) for k, v in task_env_raw.items()}
+        tasks[name] = UnslothTaskConfig(name=name, args=args, env=task_env)
 
     if not tasks:
         _log_warn("unsloth_sft has no tasks defined. It will be a no-op.")
-    return UnslothConfig(enabled=enabled, script=script, env=env, tasks=tasks)
+    return UnslothConfig(enabled=enabled, script=script, env=global_env, tasks=tasks)
 
 
 def _resolve_project_root(raw_root: str | Path) -> Path:
@@ -254,8 +261,7 @@ def _resolve_project_root(raw_root: str | Path) -> Path:
 
 
 def _resolve_python_bin(raw_python_bin: str) -> str:
-    resolved = shutil.which(raw_python_bin)
-    if resolved:
+    if resolved := shutil.which(raw_python_bin):
         return resolved
     # If user provided an absolute path that is not executable, fail fast
     candidate = Path(raw_python_bin)
@@ -312,9 +318,9 @@ def _build_env(
 ) -> Dict[str, str]:
     merged = os.environ.copy()
     if global_env:
-        merged.update(global_env)
+        merged |= global_env
     if extra:
-        merged.update(extra)
+        merged |= extra
     if model_profile:
         merged.setdefault("MONGARS_MODEL_PROFILE", model_profile)
     return merged
@@ -346,6 +352,9 @@ def _run_subprocess(
     """
     Run a command with subprocess.run, streaming output, and return elapsed seconds.
     """
+    if not isinstance(command, list) or not command:
+        raise ValueError("command must be a non-empty list of arguments")
+
     cmd_str = " ".join(command)
     _log_info(f"Executing: {cmd_str}")
 
@@ -367,6 +376,7 @@ def _run_subprocess(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            shell=False,
         )
 
         assert proc.stdout is not None
@@ -458,8 +468,8 @@ def run_unsloth_task(
     _ensure_script_exists(cfg.script)
     _log_box(f"RUNNING UNSLOTH TASK: {task_name}")
 
-    base_args = {}
-    base_args.update(task_cfg.args)
+    base_args: Dict[str, str] = {}
+    base_args |= task_cfg.args
     if "task" not in base_args:
         base_args["task"] = task_name
 
@@ -573,7 +583,7 @@ def cli_run_datasets(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "datasets")
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = f"{datetime.utcnow().isoformat()}Z"
     elapsed = run_stage(
         "datasets",
         cfg.datasets,
@@ -589,7 +599,7 @@ def cli_run_datasets(
         {
             "command": "run-datasets",
             "started_at": started_at,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": f"{datetime.utcnow().isoformat()}Z",
             "elapsed_seconds": elapsed,
             "model_profile": cfg.model_profile,
             "log_file": str(run_dir / "datasets.log"),
@@ -609,7 +619,7 @@ def cli_run_embeddings(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "embeddings")
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = f"{datetime.utcnow().isoformat()}Z"
     elapsed = run_stage(
         "embeddings",
         cfg.embeddings,
@@ -625,7 +635,7 @@ def cli_run_embeddings(
         {
             "command": "run-embeddings",
             "started_at": started_at,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": f"{datetime.utcnow().isoformat()}Z",
             "elapsed_seconds": elapsed,
             "model_profile": cfg.model_profile,
             "log_file": str(run_dir / "embeddings.log"),
@@ -659,7 +669,7 @@ def cli_run_sft(
     unsloth_cfg = cfg.unsloth
     run_label = f"run_sft_{task}" if task else "run_sft_all"
     run_dir = _start_run_dir(cfg.run_logs_dir, run_label)
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = f"{datetime.utcnow().isoformat()}Z"
     summary: list[dict[str, Any]] = []
 
     if not unsloth_cfg.tasks:
@@ -669,7 +679,7 @@ def cli_run_sft(
             {
                 "command": "run-sft",
                 "started_at": started_at,
-                "finished_at": datetime.utcnow().isoformat() + "Z",
+                "finished_at": f"{datetime.utcnow().isoformat()}Z",
                 "elapsed_seconds": 0.0,
                 "tasks": [],
                 "log_dir": str(run_dir),
@@ -701,7 +711,7 @@ def cli_run_sft(
                 "command": "run-sft",
                 "task": task,
                 "started_at": started_at,
-                "finished_at": datetime.utcnow().isoformat() + "Z",
+                "finished_at": f"{datetime.utcnow().isoformat()}Z",
                 "elapsed_seconds": elapsed,
                 "tasks": [task],
                 "model_profile": cfg.model_profile,
@@ -738,7 +748,7 @@ def cli_run_sft(
         {
             "command": "run-sft",
             "started_at": started_at,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": f"{datetime.utcnow().isoformat()}Z",
             "elapsed_seconds": total_time,
             "tasks": summary,
             "model_profile": cfg.model_profile,
@@ -764,7 +774,7 @@ def cli_run_export(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "export")
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = f"{datetime.utcnow().isoformat()}Z"
     summary: list[dict[str, Any]] = []
 
     gguf_elapsed = run_stage(
@@ -798,7 +808,7 @@ def cli_run_export(
         {
             "command": "run-export",
             "started_at": started_at,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": f"{datetime.utcnow().isoformat()}Z",
             "elapsed_seconds": gguf_elapsed + mlc_elapsed,
             "model_profile": cfg.model_profile,
             "log_files": summary,
@@ -822,87 +832,75 @@ def cli_run_all(
 
     grand_total = 0.0
     summary: list[dict[str, Any]] = []
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = f"{datetime.utcnow().isoformat()}Z"
     run_dir = _start_run_dir(cfg.run_logs_dir, "run_all")
+    exit_code = 0
 
-    if cfg.datasets is not None and cfg.datasets.enabled:
-        elapsed = run_stage(
-            "datasets",
-            cfg.datasets,
-            cfg.python_bin,
-            cfg.project_root,
-            cfg.global_env,
-            cfg.model_profile,
-            run_dir,
-            dry_run=dry_run,
-        )
-        grand_total += elapsed
-        summary.append(
-            {
-                "name": "datasets",
-                "status": "ran",
-                "elapsed": elapsed,
-                "note": str(run_dir / "datasets.log"),
-            }
-        )
-    else:
-        note = "disabled" if cfg.datasets is not None else "not configured"
-        _log_warn(f"Datasets stage {note}; skipping.")
-        summary.append(
-            {"name": "datasets", "status": "skipped", "elapsed": 0.0, "note": note}
-        )
+    def _record_stage(
+        name: str,
+        stage_cfg: Optional[StageConfig],
+        *,
+        required: bool = False,
+        required_note: Optional[str] = None,
+    ) -> None:
+        nonlocal grand_total, exit_code
+        if stage_cfg is not None and stage_cfg.enabled:
+            elapsed = run_stage(
+                name,
+                stage_cfg,
+                cfg.python_bin,
+                cfg.project_root,
+                cfg.global_env,
+                cfg.model_profile,
+                run_dir,
+                dry_run=dry_run,
+            )
+            grand_total += elapsed
+            summary.append(
+                {
+                    "name": name,
+                    "status": "ran",
+                    "elapsed": elapsed,
+                    "note": str(run_dir / f"{name}.log"),
+                }
+            )
+            return
 
-    if cfg.embeddings is not None and cfg.embeddings.enabled:
-        elapsed = run_stage(
-            "embeddings",
-            cfg.embeddings,
-            cfg.python_bin,
-            cfg.project_root,
-            cfg.global_env,
-            cfg.model_profile,
-            run_dir,
-            dry_run=dry_run,
-        )
-        grand_total += elapsed
-        summary.append(
-            {
-                "name": "embeddings",
-                "status": "ran",
-                "elapsed": elapsed,
-                "note": str(run_dir / "embeddings.log"),
-            }
-        )
-    else:
-        note = "disabled" if cfg.embeddings is not None else "not configured"
-        _log_warn(f"Embeddings stage {note}; skipping.")
-        summary.append(
-            {"name": "embeddings", "status": "skipped", "elapsed": 0.0, "note": note}
-        )
-
-    if cfg.unsloth is not None and cfg.unsloth.enabled:
-        if cfg.unsloth.tasks:
-            for name, task_cfg in cfg.unsloth.tasks.items():
-                elapsed = run_unsloth_task(
-                    task_name=name,
-                    cfg=cfg.unsloth,
-                    task_cfg=task_cfg,
-                    python_bin=cfg.python_bin,
-                    project_root=cfg.project_root,
-                    global_env=cfg.global_env,
-                    model_profile=cfg.model_profile,
-                    run_dir=run_dir,
-                    dry_run=dry_run,
-                )
-                grand_total += elapsed
-                summary.append(
-                    {
-                        "name": f"unsloth:{name}",
-                        "status": "ran",
-                        "elapsed": elapsed,
-                        "note": str(run_dir / f"unsloth_{name}.log"),
-                    }
-                )
+        note = "disabled" if stage_cfg is not None else "not configured"
+        if required:
+            _log_error(required_note or f"{name} stage is required for this build.")
+            exit_code = 1
         else:
+            _log_warn(f"{name.capitalize()} stage {note}; skipping.")
+        summary.append({"name": name, "status": "skipped", "elapsed": 0.0, "note": note})
+
+    def _handle_unsloth() -> None:
+        nonlocal grand_total
+        if cfg.unsloth is not None and cfg.unsloth.enabled:
+            if cfg.unsloth.tasks:
+                for name, task_cfg in cfg.unsloth.tasks.items():
+                    elapsed = run_unsloth_task(
+                        task_name=name,
+                        cfg=cfg.unsloth,
+                        task_cfg=task_cfg,
+                        python_bin=cfg.python_bin,
+                        project_root=cfg.project_root,
+                        global_env=cfg.global_env,
+                        model_profile=cfg.model_profile,
+                        run_dir=run_dir,
+                        dry_run=dry_run,
+                    )
+                    grand_total += elapsed
+                    summary.append(
+                        {
+                            "name": f"unsloth:{name}",
+                            "status": "ran",
+                            "elapsed": elapsed,
+                            "note": str(run_dir / f"unsloth_{name}.log"),
+                        }
+                    )
+                return
+
             _log_warn("Unsloth SFT enabled but no tasks defined; skipping.")
             summary.append(
                 {
@@ -912,69 +910,24 @@ def cli_run_all(
                     "note": "no tasks",
                 }
             )
-    else:
+            return
+
         note = "disabled" if cfg.unsloth is not None else "not configured"
         _log_warn(f"Unsloth SFT stage {note}; skipping.")
-        summary.append(
-            {"name": "unsloth", "status": "skipped", "elapsed": 0.0, "note": note}
-        )
+        summary.append({"name": "unsloth", "status": "skipped", "elapsed": 0.0, "note": note})
 
-    if cfg.export is not None and cfg.export.enabled:
-        elapsed = run_stage(
-            "export",
-            cfg.export,
-            cfg.python_bin,
-            cfg.project_root,
-            cfg.global_env,
-            cfg.model_profile,
-            run_dir,
-            dry_run=dry_run,
-        )
-        grand_total += elapsed
-        summary.append(
-            {
-                "name": "export",
-                "status": "ran",
-                "elapsed": elapsed,
-                "note": str(run_dir / "export.log"),
-            }
-        )
-    else:
-        note = "disabled" if cfg.export is not None else "not configured"
-        _log_warn(f"Export stage {note}; skipping.")
-        summary.append(
-            {"name": "export", "status": "skipped", "elapsed": 0.0, "note": note}
-        )
-
-    if cfg.mlc_export is not None and cfg.mlc_export.enabled:
-        elapsed = run_stage(
-            "mlc_export",
-            cfg.mlc_export,
-            cfg.python_bin,
-            cfg.project_root,
-            cfg.global_env,
-            cfg.model_profile,
-            run_dir,
-            dry_run=dry_run,
-        )
-        grand_total += elapsed
-        summary.append(
-            {
-                "name": "mlc_export",
-                "status": "ran",
-                "elapsed": elapsed,
-                "note": str(run_dir / "mlc_export.log"),
-            }
-        )
-    else:
-        note = "disabled" if cfg.mlc_export is not None else "not configured"
-        _log_error(
+    _record_stage("datasets", cfg.datasets)
+    _record_stage("embeddings", cfg.embeddings)
+    _handle_unsloth()
+    _record_stage("export", cfg.export)
+    _record_stage(
+        "mlc_export",
+        cfg.mlc_export,
+        required=True,
+        required_note=(
             "MLC export stage is required for monGARS_webLLM deployment. Configure 'mlc_export' and keep it enabled."
-        )
-        summary.append(
-            {"name": "mlc_export", "status": "skipped", "elapsed": 0.0, "note": note}
-        )
-        raise typer.Exit(code=1)
+        ),
+    )
 
     _log_box("PIPELINE COMPLETED")
     _log_info(f"Total elapsed time for full pipeline: {grand_total:.1f} seconds.")
@@ -984,13 +937,15 @@ def cli_run_all(
         {
             "command": "run-all",
             "started_at": started_at,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": f"{datetime.utcnow().isoformat()}Z",
             "elapsed_seconds": grand_total,
             "stages": summary,
             "model_profile": cfg.model_profile,
             "log_dir": str(run_dir),
         },
     )
+    if exit_code:
+        raise typer.Exit(code=exit_code)
 
 
 # ---------------------------------------------------------------------------
