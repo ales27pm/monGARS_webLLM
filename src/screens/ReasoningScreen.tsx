@@ -127,15 +127,18 @@ const ReasoningScreen: React.FC<Props> = () => {
         {gpuLoading ? (
           <div style={{ color: palette.muted, marginBottom: 8 }}>Détection GPU en cours…</div>
         ) : null}
-        {reasoningTrace ? (
+        {reasoningTrace && (reasoningTrace.summary ?? "").trim().length > 0 ? (
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontWeight: 700 }}>Résumé actuel</div>
-            <div style={{ color: palette.muted, marginTop: 4 }}>{reasoningTrace.summary}</div>
+            <div style={{ color: palette.muted, marginTop: 4 }}>
+              {reasoningTrace.summary}
+            </div>
           </div>
         ) : (
           <div style={{ color: palette.muted, marginBottom: 8 }}>
-            Aucune trace disponible pour l'instant. Envoie un message pour générer un nouveau
-            raisonnement.
+            {reasoningTrace
+              ? "Résumé indisponible pour cette trace."
+              : "Aucune trace disponible pour l'instant. Envoie un message pour générer un nouveau raisonnement."}
           </div>
         )}
         {reasoningSteps.map((step, index) => (
