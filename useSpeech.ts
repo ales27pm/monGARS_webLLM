@@ -5,10 +5,15 @@ import { blobToFloat32AudioData } from "./speechUtils";
 
 type UseSpeechOptions = {
   onTranscription?: (text: string) => void;
+  initialVocalModeEnabled?: boolean;
 };
 
 const ASR_MODEL = "Xenova/whisper-small";
 const TTS_MODEL = "Xenova/parler-tts-mini-v1";
+const TURN_BASE_THRESHOLD = 0.01;
+const TURN_SILENCE_MS = 1200;
+const TURN_MIN_SPEECH_MS = 900;
+const TURN_CALIBRATION_FRAMES = 90;
 
 type MediaRecorderOptions = ConstructorParameters<typeof MediaRecorder>[1];
 
@@ -26,7 +31,7 @@ function supportsNativeTts(win: Window | undefined): boolean {
 }
 
 export function useSpeech(options: UseSpeechOptions = {}) {
-  const { onTranscription } = options;
+  const { onTranscription, initialVocalModeEnabled = true } = options;
   const windowRef = typeof window !== "undefined" ? window : undefined;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -41,6 +46,24 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [vocalModeEnabled, setVocalModeEnabled] = useState(
+    initialVocalModeEnabled,
+  );
+  const [turnState, setTurnState] = useState<
+    "idle" | "calibrating" | "listening" | "silenceHold"
+  >("idle");
+  const turnStateRef = useRef<
+    "idle" | "calibrating" | "listening" | "silenceHold"
+  >(turnState);
+
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const turnRafRef = useRef<number | null>(null);
+  const silenceStartedAtRef = useRef<number | null>(null);
+  const lastVoiceDetectedAtRef = useRef<number | null>(null);
+  const noiseFloorRef = useRef<number>(0);
+  const calibrationFramesRef = useRef<number>(0);
+  const hasDetectedSpeechRef = useRef<boolean>(false);
 
   const hasNativeRecognition = useMemo(
     () => supportsNativeRecognition(windowRef),
@@ -48,6 +71,125 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   );
 
   const hasNativeTts = useMemo(() => supportsNativeTts(windowRef), [windowRef]);
+
+  const updateTurnState = useCallback(
+    (state: "idle" | "calibrating" | "listening" | "silenceHold") => {
+      turnStateRef.current = state;
+      setTurnState(state);
+    },
+    [],
+  );
+
+  const stopTurnMonitoring = useCallback(() => {
+    if (turnRafRef.current !== null) {
+      cancelAnimationFrame(turnRafRef.current);
+      turnRafRef.current = null;
+    }
+    if (mediaStreamSourceRef.current) {
+      mediaStreamSourceRef.current.disconnect();
+      mediaStreamSourceRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current.disconnect();
+      analyserRef.current = null;
+    }
+    silenceStartedAtRef.current = null;
+    lastVoiceDetectedAtRef.current = null;
+    calibrationFramesRef.current = 0;
+    noiseFloorRef.current = 0;
+    hasDetectedSpeechRef.current = false;
+    updateTurnState("idle");
+  }, [updateTurnState]);
+
+  const monitorTurnTaking = useCallback(
+    (stream: MediaStream) => {
+      const audioContext = getAudioContext();
+      analyserRef.current = audioContext.createAnalyser();
+      analyserRef.current.fftSize = 2048;
+      const analyser = analyserRef.current;
+      mediaStreamSourceRef.current = audioContext.createMediaStreamSource(stream);
+      mediaStreamSourceRef.current.connect(analyser);
+      const buffer = new Float32Array(analyser.fftSize);
+      silenceStartedAtRef.current = null;
+      lastVoiceDetectedAtRef.current = performance.now();
+      calibrationFramesRef.current = 0;
+      noiseFloorRef.current = 0;
+      updateTurnState("calibrating");
+
+      const step = () => {
+        if (!analyserRef.current || !recorderRef.current) {
+          return;
+        }
+        analyser.getFloatTimeDomainData(buffer);
+        const rms = Math.sqrt(
+          buffer.reduce((sum, value) => sum + value * value, 0) / buffer.length,
+        );
+
+        const isCalibrating =
+          calibrationFramesRef.current < TURN_CALIBRATION_FRAMES;
+
+        if (isCalibrating) {
+          noiseFloorRef.current =
+            (noiseFloorRef.current * calibrationFramesRef.current + rms) /
+            (calibrationFramesRef.current + 1);
+          calibrationFramesRef.current += 1;
+          if (turnStateRef.current !== "calibrating") {
+            updateTurnState("calibrating");
+          }
+          turnRafRef.current = requestAnimationFrame(step);
+          return;
+        }
+
+        const dynamicThreshold = Math.max(
+          TURN_BASE_THRESHOLD,
+          noiseFloorRef.current * 3.5,
+        );
+        const now = performance.now();
+
+        if (rms >= dynamicThreshold) {
+          if (!hasDetectedSpeechRef.current) {
+            hasDetectedSpeechRef.current = true;
+          }
+          lastVoiceDetectedAtRef.current = now;
+          silenceStartedAtRef.current = null;
+          if (turnStateRef.current !== "listening") {
+            updateTurnState("listening");
+          }
+        } else {
+          if (!hasDetectedSpeechRef.current) {
+            if (turnStateRef.current !== "listening") {
+              updateTurnState("listening");
+            }
+            turnRafRef.current = requestAnimationFrame(step);
+            return;
+          }
+          silenceStartedAtRef.current = silenceStartedAtRef.current ?? now;
+          const elapsedSinceSpeech =
+            now - (lastVoiceDetectedAtRef.current ?? now);
+          const silenceDuration = now - silenceStartedAtRef.current;
+
+          if (
+            elapsedSinceSpeech > TURN_MIN_SPEECH_MS &&
+            silenceDuration > TURN_SILENCE_MS &&
+            recorderRef.current.state !== "inactive"
+          ) {
+            updateTurnState("silenceHold");
+            recorderRef.current.stop();
+            return;
+          }
+
+          if (turnStateRef.current !== "silenceHold") {
+            updateTurnState("silenceHold");
+          }
+        }
+
+        turnRafRef.current = requestAnimationFrame(step);
+      };
+
+      turnRafRef.current = requestAnimationFrame(step);
+    },
+    [getAudioContext, updateTurnState],
+  );
 
   const setRecordingFlags = (recording: boolean, transcribing: boolean) => {
     setIsRecording(recording);
@@ -138,6 +280,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
     try {
       setError(null);
+      updateTurnState("calibrating");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const options: MediaRecorderOptions | undefined =
         typeof MediaRecorder !== "undefined" &&
@@ -154,6 +297,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       };
 
       recorder.onstop = async () => {
+        stopTurnMonitoring();
         setRecordingFlags(false, true);
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         chunksRef.current = [];
@@ -177,14 +321,34 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         }
       };
 
+      recorder.onerror = (event) => {
+        console.error("Recorder error", event);
+        stopTurnMonitoring();
+        setRecordingFlags(false, false);
+        setError("L'enregistrement a été interrompu.");
+      };
+
       recorder.start();
       recorderRef.current = recorder;
       setRecordingFlags(true, false);
+      if (vocalModeEnabled) {
+        monitorTurnTaking(stream);
+      } else {
+        updateTurnState("idle");
+      }
     } catch (err) {
       console.error("Microphone permission or initialization failed", err);
       setError("Impossible d'accéder au micro. Vérifie les permissions.");
+      stopTurnMonitoring();
     }
-  }, [onTranscription, transcribeBlob]);
+  }, [
+    monitorTurnTaking,
+    onTranscription,
+    stopTurnMonitoring,
+    transcribeBlob,
+    updateTurnState,
+    vocalModeEnabled,
+  ]);
 
   const startRecording = useCallback(async () => {
     if (isRecording || isTranscribing) {
@@ -353,5 +517,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     isSpeaking,
     lastTranscript,
     error,
+    vocalModeEnabled,
+    setVocalModeEnabled,
+    turnState,
   };
 }
