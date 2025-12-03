@@ -23,6 +23,9 @@ export type UseTurnDetectionOptions = {
   config?: Partial<TurnDetectionConfig>;
 };
 
+// Defaults tuned for conversational speech: ~1s silence before stop,
+// ~1s minimum speech before allowing silence-based stop, and ~90 frames
+// (~1.9s at 48kHz/2048 fftSize) to establish a stable noise floor.
 const DEFAULT_TURN_CONFIG: TurnDetectionConfig = {
   baseThreshold: 0.01,
   thresholdMultiplier: 3.5,

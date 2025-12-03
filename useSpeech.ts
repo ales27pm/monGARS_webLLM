@@ -206,6 +206,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
         setActiveStream(null);
         setRecordingFlags(false, false);
         setError("L'enregistrement a été interrompu.");
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       recorder.start();
