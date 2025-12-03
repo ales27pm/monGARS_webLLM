@@ -98,16 +98,27 @@ async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial")
   geoUrl.searchParams.set("language", "fr");
   geoUrl.searchParams.set("format", "json");
 
-  const geoRes = await fetch(geoUrl.toString());
-  if (!geoRes.ok) {
+  let geoData: unknown;
+  try {
+    const geoRes = await fetch(geoUrl.toString());
+    if (!geoRes.ok) {
+      return {
+        content: `Géocodage Open-Meteo indisponible pour "${city}" (code ${geoRes.status}).`,
+        sources: [],
+      };
+    }
+
+    geoData = await geoRes.json();
+  } catch (error) {
     return {
-      content: `Géocodage Open-Meteo indisponible pour "${city}" (code ${geoRes.status}).`,
+      content: `Erreur lors de l'appel au géocodeur Open-Meteo pour "${city}": ${String(error)}`,
       sources: [],
     };
   }
 
-  const geoData = await geoRes.json();
-  const result = Array.isArray(geoData.results) ? geoData.results[0] : null;
+  const result = Array.isArray((geoData as { results?: unknown }).results)
+    ? (geoData as { results: any[] }).results[0]
+    : null;
   if (!result) {
     return {
       content: `Impossible de localiser "${city}" via Open-Meteo.`,
@@ -124,27 +135,47 @@ async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial")
   );
   forecastUrl.searchParams.set("timezone", "auto");
   forecastUrl.searchParams.set("language", "fr");
+  if (units === "metric") {
+    forecastUrl.searchParams.set("wind_speed_unit", "ms");
+  }
   if (units === "imperial") {
     forecastUrl.searchParams.set("temperature_unit", "fahrenheit");
     forecastUrl.searchParams.set("wind_speed_unit", "mph");
   }
 
-  const forecastRes = await fetch(forecastUrl.toString());
-  if (!forecastRes.ok) {
+  let forecastData: any;
+  try {
+    const forecastRes = await fetch(forecastUrl.toString());
+    if (!forecastRes.ok) {
+      return {
+        content: `Météo Open-Meteo indisponible pour "${city}" (code ${forecastRes.status}).`,
+        sources: [],
+      };
+    }
+
+    forecastData = await forecastRes.json();
+  } catch (error) {
     return {
-      content: `Météo Open-Meteo indisponible pour "${city}" (code ${forecastRes.status}).`,
+      content: `Erreur lors de la récupération de la météo Open-Meteo pour "${city}": ${String(error)}`,
       sources: [],
     };
   }
 
-  const forecastData = await forecastRes.json();
   const current = forecastData.current || {};
   const unitLabel = units === "metric" ? "°C" : "°F";
   const windLabel = units === "metric" ? "m/s" : "mph";
 
-  const description = openMeteoWeatherCode[current.weather_code];
+  const rawWeatherCode = Array.isArray(current.weather_code)
+    ? current.weather_code[0]
+    : current.weather_code;
+  const normalizedCode = typeof rawWeatherCode === "number" ? rawWeatherCode : Number(rawWeatherCode);
+  const description = normalizedCode in openMeteoWeatherCode ? openMeteoWeatherCode[normalizedCode] : null;
   const parts: string[] = [];
-  if (description) parts.push(`Conditions: ${description}`);
+  if (description) {
+    parts.push(`Conditions: ${description}`);
+  } else if (rawWeatherCode != null) {
+    parts.push(`Conditions: Code météo ${rawWeatherCode} non reconnu`);
+  }
   if (current.temperature_2m != null) parts.push(`Température: ${current.temperature_2m}${unitLabel}`);
   if (current.apparent_temperature != null)
     parts.push(`Ressenti: ${current.apparent_temperature}${unitLabel}`);
