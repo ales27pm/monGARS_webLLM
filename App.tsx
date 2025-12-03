@@ -68,7 +68,9 @@ const isValidHttpUrl = (value: string | null | undefined) => {
   }
 };
 
-const sanitizeSources = (rawSources: Source[] | null | undefined): Source[] => {
+const sanitizeSources = (
+  rawSources: Array<Partial<Source>> | null | undefined,
+): Source[] => {
   if (!rawSources || rawSources.length === 0) return [];
 
   const unique = new Map<string, Source>();
@@ -167,12 +169,10 @@ const App: React.FC = () => {
     return Date.now();
   }, z.number());
 
-  const sourceSchema = z
-    .object({
-      title: z.string().trim(),
-      url: z.string().trim(),
-    })
-    .transform((data) => sanitizeSources([data])[0] ?? null);
+  const sourceSchema = z.object({
+    title: z.string().trim().optional(),
+    url: z.string().trim().optional(),
+  });
 
   const messageSchema = z.object({
     id: z.string(),
@@ -189,11 +189,7 @@ const App: React.FC = () => {
     sources: z
       .array(sourceSchema)
       .optional()
-      .transform((sources) =>
-        sanitizeSources(
-          (sources || []).filter((source): source is Source => !!source),
-        ),
-      ),
+      .transform((sources) => sanitizeSources(sources)),
   });
 
   const initialConfig = useMemo<Config>(() => {

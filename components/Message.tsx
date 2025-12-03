@@ -67,7 +67,7 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
                 key={`${message.id}-${source.url}`}
                 href={source.url}
                 target="_blank"
-                rel="noreferrer"
+                rel="noreferrer noopener"
                 className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-full border border-slate-200 dark:border-slate-600 bg-white/70 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 hover:border-primary-DEFAULT hover:text-primary-DEFAULT transition-colors"
               >
                 <i className="fa-solid fa-link" aria-hidden="true"></i>
