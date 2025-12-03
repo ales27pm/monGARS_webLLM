@@ -162,9 +162,7 @@ export class EmbeddingMemory {
       )
       .sort((a, b) => b.score - a.score);
 
-    const deduped = this.deduplicateByKey(reranked);
-    const diversified = this.promoteNovelty(deduped, limit);
-    return diversified;
+    return reranked.slice(0, Math.max(1, limit));
   }
 
   formatSummaries(entries: ScoredMemoryEntry[]): string {
@@ -209,46 +207,6 @@ export class EmbeddingMemory {
     );
     const ageHours = ageMs / (1000 * 60 * 60);
     return 1 / (1 + ageHours / 6);
-  }
-
-  private deduplicateByKey(entries: ScoredMemoryEntry[]): ScoredMemoryEntry[] {
-    const map = new Map<string, ScoredMemoryEntry>();
-
-    for (const entry of entries) {
-      const key = (entry.id || this.normalizeKey(entry.content)) ?? "";
-      if (!key) continue;
-
-      const existing = map.get(key);
-      if (!existing || existing.score < entry.score) {
-        map.set(key, entry);
-      }
-    }
-
-    return Array.from(map.values());
-  }
-
-  private normalizeKey(text: string): string {
-    return text.trim().toLowerCase().slice(0, 160);
-  }
-
-  private promoteNovelty(
-    entries: ScoredMemoryEntry[],
-    limit: number,
-  ): ScoredMemoryEntry[] {
-    const selected: ScoredMemoryEntry[] = [];
-
-    for (const entry of entries) {
-      const nearDuplicate = selected.some(
-        (candidate) =>
-          this.lexicalOverlapScore(candidate.content, entry.content) > 0.72,
-      );
-      if (nearDuplicate) continue;
-
-      selected.push(entry);
-      if (selected.length >= limit) break;
-    }
-
-    return selected;
   }
 
   private roleBoost(role: Role): number {
