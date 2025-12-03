@@ -119,7 +119,13 @@ async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial")
   const result = Array.isArray((geoData as { results?: unknown }).results)
     ? (geoData as { results: any[] }).results[0]
     : null;
-  if (!result) {
+  const latitude = Number(result?.latitude);
+  const longitude = Number(result?.longitude);
+  const name = typeof result?.name === "string" ? result.name : undefined;
+  const admin1 = typeof result?.admin1 === "string" ? result.admin1 : undefined;
+  const country = typeof result?.country === "string" ? result.country : undefined;
+
+  if (!result || Number.isNaN(latitude) || Number.isNaN(longitude)) {
     return {
       content: `Impossible de localiser "${city}" via Open-Meteo.`,
       sources: [],
@@ -127,8 +133,8 @@ async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial")
   }
 
   const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
-  forecastUrl.searchParams.set("latitude", String(result.latitude));
-  forecastUrl.searchParams.set("longitude", String(result.longitude));
+  forecastUrl.searchParams.set("latitude", String(latitude));
+  forecastUrl.searchParams.set("longitude", String(longitude));
   forecastUrl.searchParams.set(
     "current",
     "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code",
@@ -183,7 +189,7 @@ async function fetchOpenMeteoWeather(city: string, units: "metric" | "imperial")
   if (current.wind_speed_10m != null) parts.push(`Vent: ${current.wind_speed_10m} ${windLabel}`);
   if (current.wind_direction_10m != null) parts.push(`Direction du vent: ${current.wind_direction_10m}°`);
 
-  const locationLabel = [result.name, result.admin1, result.country].filter(Boolean).join(", ");
+  const locationLabel = [name, admin1, country].filter(Boolean).join(", ");
   const displayName = locationLabel || city;
 
   return {
