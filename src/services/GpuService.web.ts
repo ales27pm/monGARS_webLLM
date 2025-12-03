@@ -19,18 +19,27 @@ const hasWebGPU = async (): Promise<boolean> => {
 const hasWebGL2 = (): boolean => {
   if (typeof document === "undefined") return false;
   let canvas: HTMLCanvasElement | null = null;
+  let ctx: WebGL2RenderingContext | null = null;
   try {
     canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("webgl2");
+    ctx = canvas.getContext("webgl2");
     return Boolean(ctx);
   } catch (error) {
     console.warn("WebGL2 detection failed", error);
     return false;
   } finally {
     try {
+      // Proactively release GL context if created
+      const lose = (ctx as any)?.getExtension?.("WEBGL_lose_context");
+      if (lose && typeof lose.loseContext === "function") {
+        lose.loseContext();
+      }
+    } catch {}
+    try {
       canvas?.remove?.();
     } catch {}
     canvas = null;
+    ctx = null;
   }
 };
 
