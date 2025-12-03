@@ -27,6 +27,7 @@ import { SearchIndicator } from "./components/SearchIndicator";
 import { ReasoningVisualizer } from "./components/ReasoningVisualizer";
 import { CapabilityPills } from "./components/CapabilityPills";
 import { HeroHeader } from "./components/HeroHeader";
+import { VoiceModePage } from "./components/VoiceModePage";
 import type {
   Message,
   Config,
@@ -120,6 +121,7 @@ const App: React.FC = () => {
   const [webGPUAvailable, setWebGPUAvailable] = useState<boolean | undefined>(
     undefined,
   );
+  const [isVoiceModeVisible, setIsVoiceModeVisible] = useState(false);
 
   const timestampSchema = z.preprocess((value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -1025,6 +1027,7 @@ Règles :
         onSettings={() => setIsSettingsVisible(true)}
         theme={config.theme}
         onToggleTheme={toggleTheme}
+        onVoiceMode={() => setIsVoiceModeVisible(true)}
       />
       <main className="flex-1 flex flex-col items-center px-4 py-6">
         <HeroHeader
@@ -1080,6 +1083,16 @@ Règles :
         onSave={handleSaveSettings}
         currentConfig={config}
       />
+      {isVoiceModeVisible && (
+        <VoiceModePage
+          onClose={() => setIsVoiceModeVisible(false)}
+          onSend={handleSend}
+          onStop={handleStop}
+          messages={messages}
+          engineStatus={engineStatus}
+          isGenerating={isGenerating}
+        />
+      )}
       <ToastContainer
         toasts={toasts}
         removeToast={(id) =>
