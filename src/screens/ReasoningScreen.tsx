@@ -21,6 +21,7 @@ const ReasoningScreen: React.FC<Props> = () => {
   const [gpuError, setGpuError] = useState<string | null>(null);
 
   const runGpuDetection = () => {
+    if (gpuLoading) return; // avoid concurrent detections
     setGpuLoading(true);
     setGpuError(null);
     detectGpuMode()
