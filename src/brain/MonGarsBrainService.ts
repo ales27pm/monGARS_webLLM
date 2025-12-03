@@ -1,7 +1,10 @@
 import { webLLMService } from "../services/WebLLMService";
 import type { ChatMessage } from "../services/WebLLMService.types";
-import type { Message } from "../context/ChatContext";
 import { EmbeddingMemory } from "../../memory";
+import { decideNextAction } from "../../decisionEngine";
+import type { Config, MLCEngine, Message } from "../../types";
+import type { SemanticMemoryClient } from "../../contextEngine";
+import { DEFAULT_MODEL_ID } from "../../models";
 
 /**
  * Minimal reasoning trace structure.
@@ -49,6 +52,19 @@ export function sanitizeUserInput(text: string): string {
 const DEFAULT_SYSTEM_PROMPT =
   "Tu es Mon Gars, un assistant qui tourne en local. Réponds de façon concise et utile.";
 
+const DEFAULT_TRACE_CONFIG: Config = {
+  modelId: DEFAULT_MODEL_ID,
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  temperature: 0.7,
+  maxTokens: 512,
+  theme: "dark",
+  semanticMemoryEnabled: true,
+  semanticMemoryMaxEntries: 96,
+  semanticMemoryNeighbors: 6,
+  toolSearchEnabled: false,
+  searchApiBase: "https://api.duckduckgo.com",
+};
+
 /**
  * MonGarsBrainService is a framework-agnostic orchestrator that owns
  * the conversation state and delegates text generation to WebLLM.
@@ -76,6 +92,28 @@ class MonGarsBrainService {
     isPlaying: false,
     lastError: null,
   };
+
+  private buildSemanticMemoryClient(): SemanticMemoryClient | null {
+    if (!this.semanticMemory) return null;
+
+    return {
+      enabled: true,
+      search: async (query, neighbors) => {
+        const memory = this.semanticMemory;
+        if (!memory) return { results: [] };
+
+        const results = await memory.search(query, neighbors);
+        return {
+          results: results.map((entry) => ({
+            id: entry.id,
+            content: entry.content,
+            score: entry.score,
+            timestamp: entry.timestamp,
+          })),
+        };
+      },
+    };
+  }
 
   private listeners: Set<Listener> = new Set();
 
@@ -134,6 +172,7 @@ class MonGarsBrainService {
         id: nextId(),
         role: "assistant",
         content: "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        timestamp: Date.now(),
         error: true,
       };
       this.messages = [...this.messages, errorMessage];
@@ -207,15 +246,7 @@ class MonGarsBrainService {
         }
       }
 
-      // Minimal reasoning trace – can be replaced by a richer pipeline later.
-      this.reasoningTrace = {
-        summary:
-          "Réponse générée par le modèle WebLLM à partir de l'historique courant.",
-        raw: {
-          input: trimmed,
-          historyLength: this.messages.length,
-        },
-      };
+      await this.refreshReasoningTrace(userMessage);
 
     } catch (error: unknown) {
       const message =
@@ -226,6 +257,7 @@ class MonGarsBrainService {
         id: nextId(),
         role: "assistant",
         content: `Désolé, une erreur s'est produite : ${message}`,
+        timestamp: Date.now(),
         error: true,
       };
       this.messages = [...this.messages, errorMessage];
@@ -302,6 +334,66 @@ class MonGarsBrainService {
     } catch (error) {
       console.warn("Impossible d'enregistrer la réponse dans la mémoire", error);
     }
+  }
+
+  private async refreshReasoningTrace(userMessage: Message): Promise<void> {
+    try {
+      const engine = (await webLLMService.getCurrentEngine?.()) as
+        | MLCEngine
+        | null;
+
+      if (!engine) {
+        this.reasoningTrace = {
+          summary:
+            "Trace limitée : moteur non initialisé, affichage d'une trace minimale.",
+          raw: { reason: "engine_unavailable" },
+        };
+        this.broadcast();
+        return;
+      }
+
+      const historyForContext = this.messages.reduce<Message[]>(
+        (acc, msg) => {
+          const alreadyAdded = acc.some((entry) => entry.id === msg.id);
+          if (alreadyAdded) return acc;
+
+          if (msg.id === userMessage.id) {
+            acc.push(userMessage);
+          } else {
+            acc.push(msg);
+          }
+
+          return acc;
+        },
+        [],
+      );
+
+      const decision = await decideNextAction(
+        engine,
+        userMessage,
+        historyForContext,
+        DEFAULT_TRACE_CONFIG,
+        this.buildSemanticMemoryClient(),
+        null,
+      );
+
+      this.reasoningTrace = {
+        summary: decision.plan || decision.rationale || "Trace de décision générée.",
+        raw: {
+          decision,
+          context: decision.context,
+        },
+      };
+    } catch (error) {
+      console.warn("Reasoning trace generation failed", error);
+      this.reasoningTrace = {
+        summary:
+          "Impossible de construire une trace détaillée pour cette requête.",
+        raw: { error: error instanceof Error ? error.message : String(error) },
+      };
+    }
+
+    this.broadcast();
   }
 
   /**
