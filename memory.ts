@@ -13,12 +13,22 @@ export type ScoredMemoryEntry = MemoryEntry & { score: number };
 type WorkerRequest =
   | { type: "warmup"; requestId: string }
   | { type: "embed"; requestId: string; text: string }
-  | { type: "search"; requestId: string; query: string; entries: MemoryEntry[]; limit: number };
+  | {
+      type: "search";
+      requestId: string;
+      query: string;
+      entries: MemoryEntry[];
+      limit: number;
+    };
 
 type WorkerResponse =
   | { type: "warmup_complete"; requestId: string }
   | { type: "embed_result"; requestId: string; vector: Float32Array }
-  | { type: "search_result"; requestId: string; results: { index: number; score: number }[] };
+  | {
+      type: "search_result";
+      requestId: string;
+      results: { index: number; score: number }[];
+    };
 
 /**
  * Lightweight semantic memory powered by a local MiniLM embedding model.
@@ -37,9 +47,12 @@ export class EmbeddingMemory {
 
   constructor(maxEntries = 64) {
     this.maxEntries = maxEntries;
-    this.worker = new Worker(new URL("./embedding.worker.ts", import.meta.url), {
-      type: "module",
-    });
+    this.worker = new Worker(
+      new URL("./embedding.worker.ts", import.meta.url),
+      {
+        type: "module",
+      },
+    );
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const { requestId } = event.data;
       const pending = this.pendingRequests.get(requestId);
@@ -59,7 +72,11 @@ export class EmbeddingMemory {
             case "warmup":
               return { type: "warmup_complete", requestId };
             default:
-              return { type: "embed_result", requestId, vector: new Float32Array() };
+              return {
+                type: "embed_result",
+                requestId,
+                vector: new Float32Array(),
+              };
           }
         })();
         pending.resolve(fallback);
@@ -84,7 +101,9 @@ export class EmbeddingMemory {
 
     for (let i = 0; i < recentMessages.length; i += CONCURRENCY) {
       const batch = recentMessages.slice(i, i + CONCURRENCY);
-      const entries = await Promise.all(batch.map((msg) => this.buildEntry(msg)));
+      const entries = await Promise.all(
+        batch.map((msg) => this.buildEntry(msg)),
+      );
       entries.forEach((entry) => {
         if (entry) {
           this.pushEntry(entry);
@@ -105,6 +124,7 @@ export class EmbeddingMemory {
     if (!content || this.entries.length === 0) return [];
 
     const snapshot = this.entries.slice();
+    const now = Date.now();
 
     const response = await this.sendToWorker({
       type: "search",
@@ -116,16 +136,35 @@ export class EmbeddingMemory {
 
     if (response.type !== "search_result") return [];
 
-    return response.results
+    const reranked = response.results
       .map((result) => {
         const entry = snapshot[result.index];
         if (!entry) return null;
+
+        const lexicalBoost = this.lexicalOverlapScore(content, entry.content);
+        const temporalBoost = this.recencyBoost(entry.timestamp, now);
+        const roleBoost = this.roleBoost(entry.role);
+
+        const blendedScore =
+          result.score * 0.65 +
+          lexicalBoost * 0.2 +
+          temporalBoost * 0.1 +
+          roleBoost;
+
         return {
           ...entry,
-          score: result.score,
+          score: blendedScore,
         };
       })
-      .filter((entry): entry is ScoredMemoryEntry => entry !== null);
+      .filter(
+        (entry): entry is ScoredMemoryEntry =>
+          entry !== null && Number.isFinite(entry.score) && entry.score > 0.05,
+      )
+      .sort((a, b) => b.score - a.score);
+
+    const deduped = this.deduplicateByKey(reranked);
+    const diversified = this.promoteNovelty(deduped, limit);
+    return diversified;
   }
 
   formatSummaries(entries: ScoredMemoryEntry[]): string {
@@ -136,6 +175,86 @@ export class EmbeddingMemory {
         return `- (${entry.role}, ${date}, ${(entry.score * 100).toFixed(0)}%) ${entry.content}`;
       })
       .join("\n");
+  }
+
+  private lexicalOverlapScore(query: string, content: string): number {
+    const queryTokens = this.tokenize(query);
+    const contentTokens = this.tokenize(content);
+    if (queryTokens.size === 0 || contentTokens.size === 0) return 0;
+
+    let overlap = 0;
+    for (const token of queryTokens) {
+      if (contentTokens.has(token)) overlap += 1;
+    }
+
+    const denominator = queryTokens.size + contentTokens.size - overlap;
+    return denominator === 0 ? 0 : overlap / denominator;
+  }
+
+  private tokenize(text: string): Set<string> {
+    return new Set(
+      (
+        text
+          ?.normalize("NFKD")
+          .toLowerCase()
+          .match(/[\p{L}\d]{3,}/gu) || []
+      ).map((token) => token),
+    );
+  }
+
+  private recencyBoost(timestamp: number, now: number): number {
+    const ageMs = Math.max(
+      0,
+      now - (Number.isFinite(timestamp) ? timestamp : now),
+    );
+    const ageHours = ageMs / (1000 * 60 * 60);
+    return 1 / (1 + ageHours / 6);
+  }
+
+  private deduplicateByKey(entries: ScoredMemoryEntry[]): ScoredMemoryEntry[] {
+    const map = new Map<string, ScoredMemoryEntry>();
+
+    for (const entry of entries) {
+      const key = (entry.id || this.normalizeKey(entry.content)) ?? "";
+      if (!key) continue;
+
+      const existing = map.get(key);
+      if (!existing || existing.score < entry.score) {
+        map.set(key, entry);
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
+  private normalizeKey(text: string): string {
+    return text.trim().toLowerCase().slice(0, 160);
+  }
+
+  private promoteNovelty(
+    entries: ScoredMemoryEntry[],
+    limit: number,
+  ): ScoredMemoryEntry[] {
+    const selected: ScoredMemoryEntry[] = [];
+
+    for (const entry of entries) {
+      const nearDuplicate = selected.some(
+        (candidate) =>
+          this.lexicalOverlapScore(candidate.content, entry.content) > 0.72,
+      );
+      if (nearDuplicate) continue;
+
+      selected.push(entry);
+      if (selected.length >= limit) break;
+    }
+
+    return selected;
+  }
+
+  private roleBoost(role: Role): number {
+    if (role === "user") return 0.05;
+    if (role === "assistant") return 0.02;
+    return 0;
   }
 
   getCapacity() {
@@ -167,13 +286,19 @@ export class EmbeddingMemory {
 
   private sendToWorker(message: WorkerRequest): Promise<WorkerResponse> {
     return new Promise((resolve) => {
-      this.pendingRequests.set(message.requestId, { resolve, type: message.type });
+      this.pendingRequests.set(message.requestId, {
+        resolve,
+        type: message.type,
+      });
       this.worker.postMessage(message);
     });
   }
 
   private requestId() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
       return crypto.randomUUID();
     }
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
