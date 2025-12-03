@@ -39,9 +39,12 @@ class NativeBackend implements WebLLMBackend {
       top_p: 0.95,
     });
 
-    const text = output?.[0]?.generated_text;
-    if (typeof text === "string" && text.trim().length > 0) {
-      return text.trim();
+    const generatedText = output?.[0]?.generated_text;
+    if (typeof generatedText === "string" && generatedText.startsWith(prompt)) {
+      const text = generatedText.substring(prompt.length).trim();
+      if (text.length > 0) {
+        return text;
+      }
     }
 
     throw new Error("Le moteur natif n'a pas fourni de réponse exploitable.");
