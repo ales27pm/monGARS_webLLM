@@ -7,15 +7,6 @@ import React, {
 } from "react";
 import { z } from "zod";
 
-let webLLMModulePromise: Promise<any> | null = null;
-async function getWebLLM() {
-  if (!webLLMModulePromise) {
-    // Use the official browser ESM build of WebLLM.
-    webLLMModulePromise = import("https://esm.run/@mlc-ai/web-llm@0.2.80");
-  }
-  return webLLMModulePromise;
-}
-
 import { Header } from "./components/Header";
 import { ChatContainer } from "./components/ChatContainer";
 import { InputBar } from "./components/InputBar";
@@ -36,6 +27,8 @@ import type {
   InitProgressReport,
   MLCEngine,
 } from "./types";
+import { webLLMService } from "./src/services/WebLLMService";
+import type { ChatMessage } from "./src/services/WebLLMService.types";
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
 import {
   decideNextAction,
@@ -389,21 +382,36 @@ Règles :
     };
   }, [checkWebGPU]);
 
-  const safeDisposeEngine = useCallback(
-    async (engineToDispose: MLCEngine | null, context: string) => {
-      if (!engineToDispose || typeof engineToDispose.dispose !== "function") {
-        return;
-      }
+  const safeDisposeEngine = useCallback(() => {
+    // Ensure disposal is serialized to avoid overlapping resets
+    let inflight = (safeDisposeEngine as any)._inflight as Promise<void> | null;
+    if (!inflight) {
+  const disposeInflightRef = useRef<Promise<void> | null>(null);
 
-      try {
-        await engineToDispose.dispose();
-        lastDisposedEngineRef.current = engineToDispose;
-      } catch (disposeErr) {
-        console.warn(`Error while disposing ${context} engine:`, disposeErr);
+  const safeDisposeEngine = useCallback(async (): Promise<void> => {
+    if (!disposeInflightRef.current) {
+      disposeInflightRef.current = (async () => {
+        // Ensure any active generation is cancelled before reset
+        try {
+          abortControllerRef.current?.abort();
+    if (!disposeInflightRef.current) {
+      const current = await webLLMService.getCurrentEngine().catch(() => null);
+      if (!current) {
+        // Nothing to dispose; ensure ref is cleared and return
+        disposeInflightRef.current = Promise.resolve();
+      } else {
+        disposeInflightRef.current = webLLMService
+          .reset()
+          .catch((disposeErr) => {
+            console.warn("Error while disposing engine:", disposeErr);
+          })
+          .finally(() => {
+            disposeInflightRef.current = null;
+          });
       }
-    },
-    [],
-  );
+    }
+    await disposeInflightRef.current;
+  }, []);
 
   const loadEngine = useCallback(
     async (forceReload = false): Promise<MLCEngine | null> => {
@@ -420,7 +428,8 @@ Règles :
           forceReload &&
           lastDisposedEngineRef.current !== existingEngine
         ) {
-          await safeDisposeEngine(existingEngine, "previous");
+          lastDisposedEngineRef.current = existingEngine;
+          await safeDisposeEngine("previous");
           setEngine(null);
         }
 
@@ -434,33 +443,21 @@ Règles :
         try {
           const selectedModel = config.modelId;
 
-          const webllm = await getWebLLM();
-          const CreateMLCEngineFn = (webllm as any).CreateMLCEngine as (
-            modelId: string,
-            options: {
-              initProgressCallback?: (report: InitProgressReport) => void;
-              appConfig?: any;
-            },
-          ) => Promise<any>;
-
-          // Ask WebLLM to create the engine for the selected model.  We do not
-          // provide a custom `appConfig` here. When the model ID corresponds to
-          // one of the officially supported models (including Qwen2.5), WebLLM
-          // automatically fetches the appropriate WASM runtime and model files.
-          const newEngine = (await CreateMLCEngineFn(selectedModel, {
-            initProgressCallback: (report: InitProgressReport) => {
+          await webLLMService.init({
+            modelId: selectedModel,
+            onProgress: (report: InitProgressReport) => {
               setInitProgress({
                 progress: Math.round(report.progress * 100),
                 text: report.text,
               });
             },
-            // Note: No `appConfig` is passed. Passing an incorrect
-            // configuration can lead to cryptic errors (e.g. reading
-            // `.endsWith` on undefined). Let the runtime infer the correct
-            // configuration based on `selectedModel`.
-          })) as MLCEngine;
+          });
 
-          setEngine(newEngine);
+          const currentEngine = (await webLLMService.getCurrentEngine()) as
+            | MLCEngine
+            | null;
+
+          setEngine(currentEngine ?? null);
           setEngineStatus("ready");
 
           addToast(
@@ -524,7 +521,8 @@ Règles :
           progress: 0,
           text: "Réinitialisation du moteur WebGPU après une erreur interne...",
         });
-        await safeDisposeEngine(engine, "failed");
+        lastDisposedEngineRef.current = engine;
+        await safeDisposeEngine("failed");
         setEngine(null);
         addToast(
           "Redémarrage du moteur",
@@ -563,9 +561,8 @@ Règles :
     let statsInterval: ReturnType<typeof setInterval>;
 
     const updateStats = async () => {
-      if (!engine) return;
       try {
-        const statsText = await engine.runtimeStatsText();
+        const statsText = await webLLMService.getRuntimeStatsText();
         const decodeRateMatch = statsText.match(/decode:\s*([\d.]+)\s*tok\/s/);
         const memoryMatch = statsText.match(
           /estimated VRAM usage:\s*([\d.]+)\s*MB/,
@@ -587,16 +584,16 @@ Règles :
       }
     };
 
-    if (isGenerating && engine) {
+    if (isGenerating && engineStatus === "ready") {
       statsInterval = setInterval(updateStats, 1000);
-    } else if (engineStatus === "ready" && engine) {
+    } else if (engineStatus === "ready") {
       updateStats();
     }
 
     return () => {
       if (statsInterval) clearInterval(statsInterval);
     };
-  }, [isGenerating, engine, engineStatus]);
+  }, [isGenerating, engineStatus]);
 
   const clearConversation = useCallback(() => {
     setMessages([]);
@@ -713,28 +710,38 @@ Règles :
     }
   };
 
+  const normalizeChatMessages = (
+    messagesToConvert: { role: string; content: string | null }[],
+  ): ChatMessage[] =>
+    messagesToConvert.map((msg) => ({
+      role: msg.role as ChatMessage["role"],
+      content: msg.content ?? "",
+    }));
+
   const streamAnswer = async (
-    history: { role: string; content: string }[],
+    history: ChatMessage[],
     aiPlaceholderId: string,
   ) => {
-    if (!engine) {
-      throw new Error("Moteur non initialisé");
-    }
-
-    const currentEngine = engine;
-
-    const chunks = await currentEngine.chat.completions.create({
-      messages: history,
+    const { stream } = await webLLMService.completeChat(history, {
       temperature: config.temperature,
-      max_tokens: config.maxTokens,
+      maxTokens: config.maxTokens,
       stream: true,
       signal: abortControllerRef.current?.signal,
     });
 
+    if (!stream) {
+      const { text } = await webLLMService.completeChat(history, {
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
+        stream: false,
+      });
+      return text ?? "";
+    }
+
     let aiResponseStream = "";
-    for await (const chunk of chunks) {
-      const content = chunk.choices[0]?.delta?.content || "";
-      if (abortControllerRef.current?.signal.aborted) break;
+    for await (const contentChunk of stream) {
+      const content = contentChunk || "";
+      if (abortControllerRef.current?.signal?.aborted) break;
       aiResponseStream += content;
       setMessages((prev) =>
         prev.map((msg) =>
@@ -863,7 +870,9 @@ Règles :
         }),
       );
 
-      const finalMessages = contextForAnswer.messagesForAnswer;
+      const finalMessages = normalizeChatMessages(
+        contextForAnswer.messagesForAnswer,
+      );
       let finalAiResponse = await streamAnswer(
         finalMessages,
         aiMessagePlaceholder.id,
@@ -880,11 +889,13 @@ Règles :
           "warning",
         );
 
-        const fallbackMessages = buildAnswerHistory(
-          decision.plan,
-          config,
-          conversationForDecision,
-          userMessage.content || "",
+        const fallbackMessages = normalizeChatMessages(
+          buildAnswerHistory(
+            decision.plan,
+            config,
+            conversationForDecision,
+            userMessage.content || "",
+          ),
         );
 
         finalAiResponse = await streamAnswer(

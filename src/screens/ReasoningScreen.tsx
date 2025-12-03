@@ -1,7 +1,9 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useContext, useEffect, useState } from "react";
+import { ChatContext } from "../context/ChatContext";
 import ReasoningVisualizer from "../components/ReasoningVisualizer";
 import { palette } from "../theme";
+import { detectGpuMode } from "../services/GpuService";
+import type { GpuMode } from "../services/GpuService.types";
 
 const reasoningSteps = [
   "Reformulation de la question utilisateur",
@@ -10,46 +12,157 @@ const reasoningSteps = [
   "Synthèse et validation de la réponse",
 ];
 
-const ReasoningScreen: React.FC = () => (
-  <View style={styles.container}>
-    <Text style={styles.title}>Visualisation du raisonnement</Text>
-    <Text style={styles.subtitle}>
-      Suis le flux de pensée de l'agent, utile pour déboguer ou expliquer les décisions.
-    </Text>
-    <ReasoningVisualizer />
-    <View style={styles.list}> 
-      {reasoningSteps.map((step, index) => (
-        <View key={step} style={styles.stepRow}>
-          <View style={styles.bullet} />
-          <Text style={styles.stepText}>{index + 1}. {step}</Text>
-        </View>
-      ))}
-    </View>
-  </View>
-);
+type Props = { navigation: { navigate: (screen: string) => void } };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: palette.background,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-  },
-  title: { color: palette.text, fontSize: 24, fontWeight: "800" },
-  subtitle: { color: palette.muted, textAlign: "center", paddingHorizontal: 12 },
-  list: {
-    marginTop: 8,
-    alignSelf: "stretch",
-    backgroundColor: palette.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 12,
-  },
-  stepRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  bullet: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.accent },
-  stepText: { color: palette.text, flexShrink: 1 },
-});
+const ReasoningScreen: React.FC<Props> = () => {
+  const { reasoningTrace } = useContext(ChatContext);
+  const [gpuMode, setGpuMode] = useState<GpuMode>("none");
+  const [gpuLoading, setGpuLoading] = useState(false);
+  const [gpuError, setGpuError] = useState<string | null>(null);
+
+  const runGpuDetection = () => {
+    if (gpuLoading) return; // avoid concurrent detections
+    setGpuLoading(true);
+    setGpuError(null);
+    detectGpuMode()
+      .then((mode) => setGpuMode(mode))
+      .catch((error: unknown) => {
+        console.warn("GPU detection failed", error);
+        setGpuError(
+          "Impossible de confirmer WebGPU/WebGL. Le rendu bascule sur un mode texte fiable.",
+        );
+        setGpuMode("none");
+      })
+      .finally(() => setGpuLoading(false));
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const safeRun = () => {
+      setGpuLoading(true);
+      setGpuError(null);
+      detectGpuMode()
+        .then((mode) => {
+          if (!isMounted) return;
+          setGpuMode(mode);
+        })
+        .catch((error: unknown) => {
+          console.warn("GPU detection failed", error);
+          if (!isMounted) return;
+          setGpuError(
+            "Impossible de confirmer WebGPU/WebGL. Le rendu bascule sur un mode texte fiable.",
+          );
+          setGpuMode("none");
+        })
+        .finally(() => {
+          if (!isMounted) return;
+          setGpuLoading(false);
+        });
+    };
+
+    safeRun();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+        alignItems: "center",
+        color: palette.text,
+      }}
+    >
+      <div style={{ fontSize: 24, fontWeight: 800 }}>Visualisation du raisonnement</div>
+      <div style={{ color: palette.muted, textAlign: "center", maxWidth: 600 }}>
+        Suis le flux de pensée de l'agent, utile pour déboguer ou expliquer les décisions.
+      </div>
+      <ReasoningVisualizer
+        reasoning={reasoningTrace}
+        gpuMode={gpuMode}
+        loading={gpuLoading}
+        error={gpuError ?? undefined}
+      />
+      <div
+        style={{
+          alignSelf: "stretch",
+          background: palette.surface,
+          borderRadius: 12,
+          border: `1px solid ${palette.border}`,
+          padding: 12,
+        }}
+      >
+        {gpuError ? (
+          <div
+            style={{
+              background: palette.elevated,
+              border: `1px solid ${palette.error}`,
+              borderRadius: 10,
+              padding: 10,
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: palette.error }}>GPU non disponible</div>
+            <div style={{ color: palette.muted, marginTop: 4 }}>{gpuError}</div>
+            <button
+              type="button"
+              onClick={runGpuDetection}
+              style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                background: "transparent",
+                color: palette.text,
+                cursor: "pointer",
+              }}
+            >
+              Relancer la détection
+            </button>
+          </div>
+        ) : null}
+        {gpuLoading ? (
+          <div style={{ color: palette.muted, marginBottom: 8 }}>Détection GPU en cours…</div>
+        ) : null}
+        {reasoningTrace && (reasoningTrace.summary ?? "").trim().length > 0 ? (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 700 }}>Résumé actuel</div>
+            <div style={{ color: palette.muted, marginTop: 4 }}>
+              {reasoningTrace.summary}
+            </div>
+          </div>
+        ) : (
+          <div style={{ color: palette.muted, marginBottom: 8 }}>
+            {reasoningTrace
+              ? "Résumé indisponible pour cette trace."
+              : "Aucune trace disponible pour l'instant. Envoie un message pour générer un nouveau raisonnement."}
+          </div>
+        )}
+        {reasoningSteps.map((step, index) => (
+          <div
+            key={step}
+            style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                background: palette.accent,
+              }}
+            />
+            <div style={{ color: palette.text }}>
+              {index + 1}. {step}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export default ReasoningScreen;

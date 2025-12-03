@@ -1,75 +1,120 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Platform, Switch } from "react-native";
 import VoiceInput from "../components/VoiceInput";
 import { palette } from "../theme";
+import { useChatContext } from "../context/ChatContext";
 
-const VoiceModeScreen: React.FC = () => {
+type Props = { navigation: { navigate: (screen: string) => void } };
+
+const VoiceModeScreen: React.FC<Props> = () => {
   const [pushToTalk, setPushToTalk] = useState(true);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
-  const [lastTranscript, setLastTranscript] = useState("Aucune requête capturée pour l'instant.");
+  const [lastTranscript, setLastTranscript] = useState(
+    "Aucune requête capturée pour l'instant.",
+  );
+  const { speechState } = useChatContext();
+
+  const listening = speechState.mode === "listening" || speechState.isRecording;
+  const speaking = speechState.mode === "speaking" || speechState.isPlaying;
+  const speechError = speechState.lastError;
 
   const platformHint = useMemo(
-    () =>
-      Platform.OS === "web"
-        ? "Utilise le micro navigateur avec fallback clavier."
-        : "Optimisé pour micro natif (mobile, tablette, TV).",
+    () => "Utilise le micro navigateur avec fallback clavier.",
     [],
   );
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Mode voix</Text>
-      <Text style={styles.subtitle}>{platformHint}</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Push-to-talk</Text>
-          <Switch value={pushToTalk} onValueChange={setPushToTalk} trackColor={{ true: palette.accent }} />
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Sous-titres en direct</Text>
-          <Switch value={captionsEnabled} onValueChange={setCaptionsEnabled} trackColor={{ true: palette.accent }} />
-        </View>
+    <div style={{ color: palette.text, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 24, fontWeight: 800 }}>Mode voix</div>
+      <div style={{ color: palette.muted }}>{platformHint}</div>
+      {speechError ? (
+        <div
+          style={{
+            background: palette.elevated,
+            border: `1px solid ${palette.error}`,
+            borderRadius: 10,
+            padding: 12,
+          }}
+        >
+          <div style={{ color: palette.error, fontWeight: 700 }}>
+            Micro indisponible
+          </div>
+          <div style={{ color: palette.muted, marginTop: 4 }}>{speechError}</div>
+          <div style={{ color: palette.muted, marginTop: 4, fontSize: 12 }}>
+            Vérifie les permissions micro ou bascule en saisie texte.
+          </div>
+        </div>
+      ) : null}
+      <div
+        style={{
+          background: palette.surface,
+          borderRadius: 12,
+          border: `1px solid ${palette.border}`,
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          maxWidth: 720,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <Toggle
+            label="Push-to-talk"
+            value={pushToTalk}
+            onChange={setPushToTalk}
+          />
+          <Toggle
+            label="Sous-titres en direct"
+            value={captionsEnabled}
+            onChange={setCaptionsEnabled}
+          />
+        </div>
         <VoiceInput
           onSpeak={(text) => {
             setLastTranscript(text);
           }}
+          speechState={speechState}
+          disabled={Boolean(speechError)}
+          busy={listening || speaking}
         />
-        <View style={styles.transcriptBox}>
-          <Text style={styles.transcriptLabel}>Dernière requête</Text>
-          <Text style={styles.transcript}>{lastTranscript}</Text>
-        </View>
-      </View>
-    </View>
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            background: palette.elevated,
+            border: `1px solid ${palette.border}`,
+          }}
+        >
+          <div style={{ color: palette.muted, fontSize: 12, marginBottom: 4 }}>
+            Dernière requête
+          </div>
+          <div style={{ color: palette.text }}>{lastTranscript}</div>
+          <div style={{ color: palette.muted, fontSize: 12, marginTop: 6 }}>
+            {listening
+              ? "Écoute en cours…"
+              : speaking
+                ? "Synthèse vocale en cours…"
+                : "Prêt pour une nouvelle capture."}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.background, padding: 16 },
-  title: { color: palette.text, fontSize: 24, fontWeight: "800", marginBottom: 4 },
-  subtitle: { color: palette.muted, marginBottom: 16 },
-  card: {
-    backgroundColor: palette.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 16,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  label: { color: palette.text, fontWeight: "600", fontSize: 16 },
-  transcriptBox: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: palette.elevated,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  transcriptLabel: { color: palette.muted, fontSize: 12, marginBottom: 4 },
-  transcript: { color: palette.text, fontSize: 14 },
-});
+const Toggle: React.FC<{
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}> = ({ label, value, onChange }) => (
+  <label style={{ display: "flex", alignItems: "center", gap: 8, color: palette.text }}>
+    <input
+      type="checkbox"
+      checked={value}
+      onChange={(e) => onChange(e.target.checked)}
+      style={{ width: 18, height: 18 }}
+    />
+    <span>{label}</span>
+  </label>
+);
 
 export default VoiceModeScreen;

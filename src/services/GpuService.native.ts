@@ -1,4 +1,4 @@
-import type { GpuCheckResult } from "./GpuService.types";
+import type { GpuMode } from "./GpuService.types";
 
 const hasNativeGL = (): boolean => {
   const expoModules = (globalThis as Record<string, any> | undefined)?.ExpoModules;
@@ -14,7 +14,7 @@ const hasNativeGL = (): boolean => {
   return knownGlManagers.some((manager) => Boolean(expoModules[manager]));
 };
 
-export async function detectBestGpuBackend(): Promise<GpuCheckResult> {
+export async function detectGpuMode(): Promise<GpuMode> {
   try {
     if (hasNativeGL()) {
       return "webgl";

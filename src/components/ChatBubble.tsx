@@ -1,40 +1,35 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
 import { palette } from "../theme";
 
 interface ChatBubbleProps {
   message: { role: string; content: string };
 }
 
+const bubbleBase: React.CSSProperties = {
+  margin: 6,
+  padding: 12,
+  borderRadius: 12,
+  maxWidth: "85%",
+  border: `1px solid ${palette.border}`,
+};
+
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const isUser = message.role === "user";
   return (
-    <View
-      style={[
-        styles.bubble,
-        {
-          alignSelf: isUser ? "flex-end" : "flex-start",
-          backgroundColor: isUser ? palette.accent : palette.elevated,
-        },
-      ]}
+    <div
+      style={{
+        ...bubbleBase,
+        alignSelf: isUser ? "flex-end" : "flex-start",
+        background: isUser ? palette.accent : palette.elevated,
+        color: isUser ? "white" : palette.text,
+      }}
     >
-      <Text style={[styles.text, { color: isUser ? "white" : palette.text }]}>{message.content}</Text>
-      <Text style={styles.meta}>{isUser ? "Toi" : "Assistant"}</Text>
-    </View>
+      <div style={{ fontSize: 16, lineHeight: 1.4 }}>{message.content}</div>
+      <div style={{ marginTop: 6, color: palette.muted, fontSize: 12 }}>
+        {isUser ? "Toi" : "Assistant"}
+      </div>
+    </div>
   );
 };
-
-const styles = StyleSheet.create({
-  bubble: {
-    margin: 6,
-    padding: 12,
-    borderRadius: 12,
-    maxWidth: "85%",
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  text: { fontSize: 16, lineHeight: 22 },
-  meta: { marginTop: 6, color: palette.muted, fontSize: 12 },
-});
 
 export default ChatBubble;

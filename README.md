@@ -1,56 +1,58 @@
 # Mon Gars – WebLLM Assistant
 
-Mon Gars is a browser-based AI assistant that runs fully on-device using WebLLM. It ships with a French-first system prompt, WebGPU acceleration, semantic memory, and a lightweight search pipeline powered by DuckDuckGo to keep answers grounded.
+Mon Gars is a privacy-first AI chat experience that runs fully in the browser using WebLLM. The multi-screen React UI (Home, Voix, Réglages, Raisonnement, Capacités) is optimized for WebGPU when available and gracefully falls back to WebGL/CPU on other browsers. A shared brain layer orchestrates conversation flow so the same services can power the Tauri desktop shell.
 
-## Features
-- **Private by default** – runs in the browser with WebLLM; no server required.
-- **WebGPU optimized** – HTTPS dev server enables GPU execution where available, with graceful fallbacks when WebGPU is missing.
-- **Grounded reasoning** – optional web search and reasoning traces to show how answers are produced.
-- **Semantic memory** – recall earlier context to maintain conversation quality.
-- **Customizable** – tweak the model, temperature, max tokens, and system prompt from the UI.
-
-## Prerequisites
-- Node.js 18 or newer
-- npm 9+ (ships with recent Node releases)
-- A modern Chromium-based browser with WebGPU for best performance (the app will still work without WebGPU, but may run slower).
+## Prérequis
+- Node.js 18 ou plus récent
+- npm 9+
+- Navigateur moderne (WebGPU recommandé mais non obligatoire)
 
 ## Installation
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-2. (Optional) Create a `.env.local` file if you want to expose a Gemini API key to the client (used by parts of the UI that expect `process.env.GEMINI_API_KEY`).
-   ```bash
-   echo "GEMINI_API_KEY=your_key_here" > .env.local
-   ```
+## Lancer le développement
+La configuration Vite démarre un serveur HTTPS (port 3000) pour activer WebGPU et les API de contexte sécurisé :
 
-## Development
-Run the HTTPS dev server (required for WebGPU and other secure-context APIs):
 ```bash
 npm run dev
 ```
 
-The app will be available at `https://localhost:3000`. Vite’s self-signed certificate is generated automatically by the `@vitejs/plugin-basic-ssl` plugin; trust it in your browser if prompted.
+Ouvrez `https://localhost:3000` et acceptez le certificat autosigné généré par Vite si besoin.
 
-## Production build
-Generate an optimized build and preview it locally:
+## Tests
+Les suites Vitest fonctionnent en environnement jsdom et mockent WebLLM/WebGPU :
+
+```bash
+npm test -- --watch=false
+```
+
+## Build de production
+Générez les assets statiques optimisés et servez-les en local :
+
 ```bash
 npm run build
 npm run preview
 ```
 
-## Troubleshooting
-- **WebGPU not detected:** make sure you are using a browser with WebGPU enabled and you access the app over HTTPS. The UI falls back gracefully but performance may degrade.
-- **Missing dependencies:** rerun `npm install` if imports such as `zod` cannot be resolved.
-- **Environment variables:** Vite exposes values from `.env*` files at build time. Restart the dev server after changing them.
+Pour un hébergement statique (NGINX, CDN…), déployez simplement le contenu du dossier `dist/` sans backend supplémentaire. Le bundle est découpé (vendor/react) pour de meilleurs caches longue durée.
 
-## Project structure
-Key entry points:
-- `App.tsx` – main React application with chat orchestration, settings, and search integration.
-- `components/` – UI building blocks (chat container, header, status bar, etc.).
-- `contextEngine.ts`, `reasoning.ts` – logic for contextualization and reasoning traces.
-- `vite.config.ts` – HTTPS-enabled Vite configuration with environment variable injection.
+Pour la coque desktop Tauri, générez d’abord les icônes à partir de leurs sources Base64 puis lancez la build empaquetée :
 
-## License
-This project is provided as-is under its repository license. Review `LICENSE` (if present) for details.
+```bash
+npm run tauri:prepare
+cd src-tauri && cargo tauri build
+```
+
+Pour des instructions détaillées de packaging (static hosting et Tauri desktop), consultez [ARCHITECTURE.md](./ARCHITECTURE.md) et [DEPLOY.md](./DEPLOY.md).
+
+## Points clés de l’architecture
+- **Entrée web** : `index.tsx` monte `src/App.tsx` qui encapsule le routeur à onglets et le `ChatProvider`.
+- **Brain** : `src/brain/MonGarsBrainService.ts` gère l’état de conversation, applique le prompt système, séquence les appels WebLLM et expose un snapshot via `useMonGarsBrain` / `ChatContext`.
+- **Services** : `src/services/WebLLMService.*` (Web/Native) encapsulent l’initialisation `@mlc-ai/web-llm`, tandis que `src/services/GpuService.*` détectent WebGPU → WebGL → aucun.
+- **UI** : `src/screens/` et `src/components/` consomment uniquement le `ChatContext` pour l’historique, le statut de génération, le raisonnement et l’état vocal.
+- **Desktop** : `src-tauri/tauri.conf.json` empaquette le bundle Vite avec une CSP locale stricte, sans accès distant par défaut.
+
+## Licences et responsabilités
+Ce projet est fourni tel quel pour un usage de recherche et d’assistant local. Vérifiez les licences des dépendances dans `package.json` et adaptez la configuration à vos contraintes réglementaires.

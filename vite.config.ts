@@ -1,7 +1,8 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, splitVendorChunkPlugin } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import react from '@vitejs/plugin-react';
+import type { UserConfig as VitestUserConfig } from 'vitest/config';
 
 //
 // This Vite configuration enables React support and sets up a self‑signed
@@ -16,6 +17,8 @@ export default defineConfig(({ mode }) => {
     // Register plugins. The order matters: React first, SSL second.
     plugins: [
       react(),
+      // Split vendor chunks automatically for better long‑term caching.
+      splitVendorChunkPlugin(),
       basicSsl(),
     ],
     // Define runtime constants so that references to process.env variables
@@ -28,7 +31,13 @@ export default defineConfig(({ mode }) => {
     // project root makes imports cleaner throughout the codebase.
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, 'src'),
+        '@/services': path.resolve(__dirname, 'src/services'),
+        '@/brain': path.resolve(__dirname, 'src/brain'),
+        '@/components': path.resolve(__dirname, 'src/components'),
+        '@/screens': path.resolve(__dirname, 'src/screens'),
+        '@/context': path.resolve(__dirname, 'src/context'),
+        '@/config': path.resolve(__dirname, 'src/config'),
       },
     },
     // Development server configuration. Expose the server on all network
@@ -38,5 +47,25 @@ export default defineConfig(({ mode }) => {
       host: true,
       https: true,
     },
+
+    // Production output tuning for static hosting and Tauri wrapping.
+    build: {
+      rollupOptions: {
+        input: path.resolve(__dirname, 'index.html'),
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react')) return 'react-vendor';
+              return 'vendor';
+            }
+          },
+        },
+      },
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: './vitest.setup.ts',
+    } satisfies VitestUserConfig['test'],
   };
 });

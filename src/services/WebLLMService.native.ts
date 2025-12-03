@@ -1,6 +1,8 @@
 import type {
-  GenerationRequestContext,
-  WebLLMBackend,
+  ChatMessage,
+  CompletionOptions,
+  CompletionResult,
+  MonGarsEngine,
 } from "./WebLLMService.types";
 
 type TextGenerationPipeline = (
@@ -8,8 +10,12 @@ type TextGenerationPipeline = (
   options?: Record<string, unknown>,
 ) => Promise<{ generated_text: string }[]>;
 
-class NativeBackend implements WebLLMBackend {
+class NativeBackend implements MonGarsEngine {
   private generatorPromise: Promise<TextGenerationPipeline> | null = null;
+
+  async init(): Promise<void> {
+    await this.loadGenerator();
+  }
 
   private async loadGenerator(): Promise<TextGenerationPipeline> {
     if (!this.generatorPromise) {
@@ -26,16 +32,24 @@ class NativeBackend implements WebLLMBackend {
     return this.generatorPromise;
   }
 
-  async generateResponse(context: GenerationRequestContext): Promise<string> {
+  async completeChat(
+    messages: ChatMessage[],
+    options: CompletionOptions,
+  ): Promise<CompletionResult> {
     const generator = await this.loadGenerator();
-    const prompt = `${context.prompt}\n\nHistorique: ${context.messages
+    const recentHistory = messages
+      .filter((msg) => msg.content)
       .slice(-3)
       .map((m) => `${m.role}: ${m.content}`)
-      .join(" | ")}`;
+      .join(" | ");
+
+    const prompt = `${options.systemPrompt ?? ""}\n\n${recentHistory}\n\n${
+      messages[messages.length - 1]?.content ?? ""
+    }`;
 
     const output = await generator(prompt, {
-      max_new_tokens: 80,
-      temperature: 0.8,
+      max_new_tokens: options.maxTokens,
+      temperature: options.temperature,
       top_p: 0.95,
     });
 
@@ -43,12 +57,18 @@ class NativeBackend implements WebLLMBackend {
     if (typeof generatedText === "string" && generatedText.startsWith(prompt)) {
       const text = generatedText.substring(prompt.length).trim();
       if (text.length > 0) {
-        return text;
+        return { text };
       }
     }
 
     throw new Error("Le moteur natif n'a pas fourni de réponse exploitable.");
   }
+
+  async reset(): Promise<void> {
+    this.generatorPromise = null;
+  }
+
+  getCurrentEngine = async (): Promise<null> => null;
 }
 
-export const nativeBackend: WebLLMBackend = new NativeBackend();
+export const nativeBackend: MonGarsEngine = new NativeBackend();
