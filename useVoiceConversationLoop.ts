@@ -141,17 +141,18 @@ export function useVoiceConversationLoop({
   useEffect(() => {
     if (!autoReadAloud) return;
     if (isGenerating) return;
+    if (isRecording || isTranscribing) return;
+    if (engineStatus !== "ready") return;
     const msg = lastAssistantMessage;
     if (!msg) return;
 
-    // Skip if we already spoke this exact message
     const alreadySpoken = spokenAssistantIdRef.current === msg.id;
     if (alreadySpoken) return;
 
-    // Debounce to avoid reacting to rapid successive updates
     const t = setTimeout(() => {
-      // Re-check conditions after debounce
       if (isGenerating) return;
+      if (isRecording || isTranscribing) return;
+      if (engineStatus !== "ready") return;
       if (!lastAssistantMessage) return;
       if (spokenAssistantIdRef.current === lastAssistantMessage.id) return;
 
@@ -161,7 +162,7 @@ export function useVoiceConversationLoop({
     }, 150);
 
     return () => clearTimeout(t);
-  }, [autoReadAloud, isGenerating, lastAssistantMessage, speak, stopSpeaking]);
+  }, [autoReadAloud, isGenerating, isRecording, isTranscribing, engineStatus, lastAssistantMessage, speak, stopSpeaking]);
 
   useEffect(() => {
     if (!autoLoop || engineStatus !== "ready") return;
