@@ -18,7 +18,7 @@ export interface InitProgressReport {
 
 export interface Config {
   modelId: string; // Added modelId to Config interface
-  systemPrompt: string;
+  systemPrompt?: string;
   temperature: number;
   maxTokens: number;
   theme: 'light' | 'dark';

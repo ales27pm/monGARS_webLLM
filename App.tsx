@@ -38,8 +38,8 @@ import type {
 import { useSemanticMemory as useSemanticMemoryHook } from "./useSemanticMemory";
 import { decideNextAction, MODEL_ID, buildAnswerHistory } from "./decisionEngine";
 import { getModelShortLabel } from "./models";
-import type { ScoredMemoryEntry } from "./memory";
 import { rebuildContextWithExternalEvidence } from "./contextEngine";
+import { createReasoningTrace, type ReasoningTrace } from "./reasoning";
 
 declare global {
   interface Navigator {
@@ -48,19 +48,6 @@ declare global {
 }
 
 type Source = { title: string; url: string };
-
-type ReasoningTrace = {
-  id: number;
-  requestedAction: "search" | "respond";
-  effectiveAction: "search" | "respond";
-  query?: string | null;
-  plan: string;
-  rationale?: string;
-  memoryContext: string;
-  memoryEnabled: boolean;
-  memoryResults: ScoredMemoryEntry[];
-  timestamp: number;
-};
 
 const DEFAULT_SEARCH_API_BASE = "https://api.duckduckgo.com/";
 
@@ -751,23 +738,31 @@ Règles :
       }
 
       const contextForAnswer = shouldSearch
-        ? rebuildContextWithExternalEvidence(decision.context, externalEvidence)
+        ? await rebuildContextWithExternalEvidence(currentEngine, {
+            userMessage,
+            history: conversationForDecision,
+            memory: semanticMemoryClient,
+            config,
+            externalEvidence,
+          })
         : decision.context;
 
-      setReasoningTrace({
-        id: Date.now(),
-        requestedAction: decision.action,
-        effectiveAction: shouldSearch ? "search" : "respond",
-        query: decision.query,
-        plan: decision.plan,
-        rationale: decision.rationale,
-        memoryContext: contextForAnswer.slices.memorySummary || "",
-        memoryEnabled: config.semanticMemoryEnabled,
-        memoryResults:
-          (contextForAnswer.slices.memoryResults as ScoredMemoryEntry[] | undefined) ||
-          [],
-        timestamp: Date.now(),
-      });
+      setReasoningTrace(
+        createReasoningTrace({
+          id: Date.now(),
+          requestedAction: decision.action,
+          effectiveAction: shouldSearch ? "search" : "respond",
+          query: decision.query,
+          plan: decision.plan,
+          rationale: decision.rationale,
+          partialResponse: null,
+          memoryEnabled: config.semanticMemoryEnabled,
+          memoryResults: contextForAnswer.slices.memoryResults,
+          memoryContextSummary: contextForAnswer.slices.memorySummary,
+          usedExternalTool: shouldSearch,
+          notes: [],
+        }),
+      );
 
       const finalMessages = contextForAnswer.messagesForAnswer;
       let finalAiResponse = await streamAnswer(

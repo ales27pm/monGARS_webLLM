@@ -94,7 +94,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <textarea
               id="systemPrompt"
               name="systemPrompt"
-              value={config.systemPrompt}
+              value={config.systemPrompt ?? ""}
               onChange={handleInputChange}
               rows={4}
               className="setting-input resize-y"
