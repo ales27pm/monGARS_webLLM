@@ -1,19 +1,22 @@
 import { z } from "zod";
 import { buildContextualHints } from "./contextProfiling";
 import { buildContext } from "./contextEngine";
-import type {
-  ContextBuildResult,
-  SemanticMemoryClient,
-} from "./contextEngine";
+import type { ContextBuildResult, SemanticMemoryClient } from "./contextEngine";
 import type { Config, Message, MLCEngine } from "./types";
 import { DEFAULT_MODEL_ID } from "./models";
 
 export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
-const buildFallbackSearchQuery = (text: string, maxLength = 160) => {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length < 4) return null;
+const MIN_FALLBACK_QUERY_LENGTH = 4;
+const MAX_FALLBACK_QUERY_LENGTH = 160;
+
+const buildFallbackSearchQuery = (
+  text?: string | null,
+  maxLength = MAX_FALLBACK_QUERY_LENGTH,
+) => {
+  const normalized = (text ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length < MIN_FALLBACK_QUERY_LENGTH) return null;
 
   return normalized.slice(0, maxLength);
 };
@@ -63,7 +66,9 @@ export const stripListPrefix = (entry: string) =>
 const normalizePlan = (plan?: string) => {
   const candidate = plan?.trim();
   if (!candidate) {
-    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join("\n");
+    return DEFAULT_PLAN_STEPS.map((step, idx) => `${idx + 1}) ${step}`).join(
+      "\n",
+    );
   }
 
   const normalizedSeparators = candidate.replace(/\r\n/g, "\n");
@@ -638,7 +643,8 @@ export const buildAnswerHistory = (
 ];
 
 const normalizeModelJsonOutput = (output: unknown): string => {
-  const text = typeof output === "string" ? output : JSON.stringify(output ?? "");
+  const text =
+    typeof output === "string" ? output : JSON.stringify(output ?? "");
 
   let cleaned = text.trim();
 
@@ -689,7 +695,7 @@ export async function decideNextActionFromMessages(
     .reverse()
     .find((msg) => msg.role === "user");
 
-  const planningContent = planningUserMessage?.content ?? "";
+  const planningContent = planningUserMessage?.content;
   const planningHistory = messagesForPlanning
     .slice(-MAX_CONTEXT_MESSAGES)
     .map((msg) => ({ role: msg.role, content: msg.content }));
@@ -711,14 +717,14 @@ export async function decideNextActionFromMessages(
 
   const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
   const normalized = normalizeDecision(raw);
+  const normalizedQuery = normalized.query?.trim();
   const notes: string[] = [...normalized.warnings];
 
   const searchWasFlipped =
-    normalized.diagnostics.actionFlip === "searchToRespond" &&
-    !normalized.query;
+    normalized.diagnostics.actionFlip === "searchToRespond" && !normalizedQuery;
 
-  let action = normalized.action;
-  let query = normalized.action === "search" ? normalized.query ?? null : null;
+  let { action } = normalized;
+  let query = normalized.action === "search" ? normalizedQuery || null : null;
 
   if ((normalized.action === "search" && !query) || searchWasFlipped) {
     const fallbackQuery = buildFallbackSearchQuery(planningContent);
