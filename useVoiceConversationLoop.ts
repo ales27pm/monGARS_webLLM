@@ -118,8 +118,22 @@ export function useVoiceConversationLoop({
     }
   }, [isGenerating, onSend]);
 
+  const wasGeneratingRef = useRef<boolean>(false);
+  const prevQueueLenRef = useRef<number>(0);
+
   useEffect(() => {
-    if (!isGenerating) {
+    const wasGenerating = wasGeneratingRef.current;
+    const prevLen = prevQueueLenRef.current;
+    wasGeneratingRef.current = isGenerating;
+    prevQueueLenRef.current = queuedTranscripts.length;
+
+    // Trigger when generation just stopped
+    if (wasGenerating && !isGenerating) {
+      void consumeQueue();
+      return;
+    }
+    // Or when queue transitions from empty to non-empty while idle
+    if (!isGenerating && prevLen === 0 && queuedTranscripts.length > 0) {
       void consumeQueue();
     }
   }, [consumeQueue, isGenerating, queuedTranscripts.length]);
