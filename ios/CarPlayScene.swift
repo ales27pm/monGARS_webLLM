@@ -1,18 +1,16 @@
 import CarPlay
 import UIKit
 
-class CarPlayScene: CPMapTemplate {
-    private let assistantMessage = "MonGARS CarPlay entrypoint"
+class CarPlayScene: CPListTemplate {
+    private static let assistantMessage = "MonGARS CarPlay entrypoint"
 
-    override init() {
-        let textTemplate = CPMessageListItem(text: assistantMessage, trailingText: nil)
+    init() {
+        let textTemplate = CPMessageListItem(text: Self.assistantMessage, trailingText: nil)
         let section = CPMessageListSection(messages: [textTemplate])
-        super.init()
+        super.init(title: Self.assistantMessage, sections: [section])
         self.automaticallyHidesNavigationBar = false
         self.leadingNavigationBarButtons = []
         self.trailingNavigationBarButtons = []
-        self.setTitles([assistantMessage], count: 1)
-        self.setSections([section])
     }
 
     @available(*, unavailable)
