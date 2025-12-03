@@ -382,12 +382,21 @@ Règles :
     };
   }, [checkWebGPU]);
 
-  const safeDisposeEngine = useCallback(async (context: string) => {
-    try {
-      await webLLMService.reset();
-    } catch (disposeErr) {
-      console.warn(`Error while disposing ${context} engine:`, disposeErr);
+  const safeDisposeEngine = useCallback(() => {
+    // Ensure disposal is serialized to avoid overlapping resets
+    let inflight = (safeDisposeEngine as any)._inflight as Promise<void> | null;
+    if (!inflight) {
+      inflight = webLLMService
+        .reset()
+        .catch((disposeErr) => {
+          console.warn("Error while disposing engine:", disposeErr);
+        })
+        .finally(() => {
+          (safeDisposeEngine as any)._inflight = null;
+        });
+      (safeDisposeEngine as any)._inflight = inflight;
     }
+    return inflight;
   }, []);
 
   const loadEngine = useCallback(
