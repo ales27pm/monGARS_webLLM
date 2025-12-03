@@ -1,0 +1,17 @@
+{
+  "package": {
+    "productName": "monGARS",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "title": "monGARS Desktop"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  }
+}
