@@ -103,19 +103,33 @@ export function useVoiceConversationLoop({
       if (prev.length === 0) return prev;
       const [next, ...rest] = prev;
       nextToSend = next;
-      return rest;
+  const consumeQueue = useCallback(async () => {
+    if (isGenerating) return;
+
+    let nextToSend: string | undefined;
+    setQueuedTranscripts((prev) => {
+      if (prev.length === 0) return prev;
+      // Peek without removing; removal happens after successful send
+      nextToSend = prev[0];
+      return prev;
     });
 
-    if (nextToSend) {
+    if (!nextToSend) return;
+
+    try {
       await onSend(nextToSend);
+      setQueuedTranscripts((prev) => prev.slice(1));
+    } catch (e) {
+      console.error("Failed to send transcript from queue", e);
+      // Keep the item for retry
     }
-  }, [isGenerating, onSend, setQueuedTranscripts]);
+  }, [isGenerating, onSend]);
 
   useEffect(() => {
     if (!isGenerating) {
       void consumeQueue();
     }
-  }, [consumeQueue, isGenerating]);
+  }, [consumeQueue, isGenerating, queuedTranscripts.length]);
 
   useEffect(() => {
     if (!lastAssistantMessage || isGenerating || !autoReadAloud) return;
