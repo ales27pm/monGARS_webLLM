@@ -92,12 +92,29 @@ class WebBackend implements MonGarsEngine {
 
     if (payload.stream) {
       const chunks = await engine.chat.completions.create(payload);
+      const signal = options.signal;
       const stream = (async function* () {
-        for await (const chunk of chunks) {
-          const content = chunk?.choices?.[0]?.delta?.content ?? "";
-          if (content) {
-            yield content;
+        let aborted = signal?.aborted ?? false;
+        const onAbort = () => {
+          aborted = true;
+          // Attempt to close iterator if supported
+          if (typeof (chunks as any)?.return === "function") {
+            try {
+              (chunks as any).return();
+            } catch {}
           }
+        };
+        if (signal) signal.addEventListener("abort", onAbort, { once: true });
+        try {
+          for await (const chunk of chunks) {
+            if (aborted) break;
+            const content = chunk?.choices?.[0]?.delta?.content ?? "";
+            if (content) {
+              yield content;
+            }
+          }
+        } finally {
+          if (signal) signal.removeEventListener("abort", onAbort);
         }
       })();
       return { stream };
