@@ -390,14 +390,19 @@ Règles :
 
   const safeDisposeEngine = useCallback(async (): Promise<void> => {
     if (!disposeInflightRef.current) {
-      disposeInflightRef.current = webLLMService
-        .reset()
-        .catch((disposeErr) => {
+      disposeInflightRef.current = (async () => {
+        // Ensure any active generation is cancelled before reset
+        try {
+          abortControllerRef.current?.abort();
+        } catch {}
+        try {
+          await webLLMService.reset();
+        } catch (disposeErr) {
           console.warn("Error while disposing engine:", disposeErr);
-        })
-        .finally(() => {
+        } finally {
           disposeInflightRef.current = null;
-        });
+        }
+      })();
     }
     await disposeInflightRef.current;
   }, []);
