@@ -171,6 +171,8 @@ export type DecisionResult = {
   };
 };
 
+export type DecisionDiagnostics = DecisionResult["diagnostics"];
+
 const formatZodIssues = (issues: z.ZodIssue[]) =>
   issues
     .map((issue) =>
@@ -579,6 +581,8 @@ export type NextActionDecision = {
   query: string | null;
   plan: string;
   rationale: string;
+  diagnostics: DecisionDiagnostics;
+  trace: DecisionTrace;
   debugContext: ContextBuildResult["slices"]["debug"];
   context: ContextBuildResult;
   notes: string[];
@@ -597,7 +601,7 @@ const formatToolSpecPrompt = (config: Config) => {
     : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
 };
 
-export const buildDecisionMessages = (
+export const buildDecisionPrompt = (
   inputText: string,
   recentHistory: Message[],
   toolSpecPrompt: string,
@@ -610,7 +614,7 @@ export const buildDecisionMessages = (
       : "Indice automatique : aucun besoin de données fraîches détecté."
     : "Indice automatique : aucune détection automatique fournie.";
 
-  return [
+  const messages = [
     { role: "system", content: DECISION_SYSTEM_PROMPT },
     {
       role: "user",
@@ -623,7 +627,16 @@ export const buildDecisionMessages = (
         `Choisis entre search ou respond, fournis un plan ToT avec au moins 3 puces. Si tu réponds directement, mets la réponse finale dans "response" et respecte les garde-fous.`,
     },
   ];
+
+  return { messages, contextualHints, freshDataLine };
 };
+
+export const buildDecisionMessages = (
+  inputText: string,
+  recentHistory: Message[],
+  toolSpecPrompt: string,
+  hints?: DecisionHints,
+) => buildDecisionPrompt(inputText, recentHistory, toolSpecPrompt, hints).messages;
 
 export const buildAnswerHistory = (
   decisionPlan: string,
@@ -678,6 +691,14 @@ const normalizeModelJsonOutput = (output: unknown): string => {
   return (candidate ?? cleaned).trim();
 };
 
+export type DecisionTrace = {
+  decisionMessages: { role: string; content: string | null }[];
+  modelRawDecision: string;
+  normalizedDecision: DecisionResult;
+  contextualHints: string;
+  freshDataLine: string;
+};
+
 export async function decideNextActionFromMessages(
   engine: MLCEngine,
   messagesForPlanning: { role: string; content: string }[],
@@ -690,6 +711,8 @@ export async function decideNextActionFromMessages(
   plan: string;
   rationale: string;
   notes: string[];
+  diagnostics: DecisionResult["diagnostics"];
+  trace: DecisionTrace;
 }> {
   const planningUserMessage = [...messagesForPlanning]
     .reverse()
@@ -700,15 +723,15 @@ export async function decideNextActionFromMessages(
     .slice(-MAX_CONTEXT_MESSAGES)
     .map((msg) => ({ role: msg.role, content: msg.content }));
 
-  const decisionMessages = buildDecisionMessages(
-    planningContent,
+  const decisionPrompt = buildDecisionPrompt(
+    planningContent || "",
     planningHistory,
     toolSpecPrompt,
     freshDataHint ? { freshDataHint } : undefined,
   );
 
   const decisionCompletion = await engine.chat.completions.create({
-    messages: decisionMessages,
+    messages: decisionPrompt.messages,
     temperature: 0.2,
     max_tokens: 256,
     stream: false,
@@ -748,6 +771,14 @@ export async function decideNextActionFromMessages(
     plan: normalized.plan,
     rationale: normalized.rationale,
     notes,
+    diagnostics: normalized.diagnostics,
+    trace: {
+      decisionMessages: decisionPrompt.messages,
+      modelRawDecision: raw,
+      normalizedDecision: normalized,
+      contextualHints: decisionPrompt.contextualHints,
+      freshDataLine: decisionPrompt.freshDataLine,
+    },
   };
 }
 
@@ -793,6 +824,8 @@ export async function decideNextAction(
     query,
     plan: normalizedDecision.plan,
     rationale: normalizedDecision.rationale,
+    diagnostics: normalizedDecision.diagnostics,
+    trace: normalizedDecision.trace,
     notes: normalizedDecision.notes,
     debugContext: context.slices.debug,
     context,
