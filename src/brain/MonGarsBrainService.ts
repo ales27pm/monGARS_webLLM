@@ -124,6 +124,14 @@ class MonGarsBrainService {
     }
 
     if (this.isBusy) {
+      const errorMessage: Message = {
+        id: nextId(),
+        role: "assistant",
+        content: "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        error: true,
+      };
+      this.messages = [...this.messages, errorMessage];
+      this.broadcast();
       return;
     }
 
