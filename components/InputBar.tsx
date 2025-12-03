@@ -27,6 +27,9 @@ export const InputBar: React.FC<InputBarProps> = ({
     isRecording,
     isTranscribing,
     isSpeaking,
+    vocalModeEnabled,
+    setVocalModeEnabled,
+    turnState,
     error,
   } = useSpeech({
     onTranscription: (transcript) => {
@@ -65,8 +68,28 @@ export const InputBar: React.FC<InputBarProps> = ({
   return (
     <>
       <div className="relative flex items-end gap-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-3xl p-2 shadow-sm focus-within:border-primary-DEFAULT focus-within:ring-2 focus-within:ring-primary-light/50 transition-all">
+        <button
+          onClick={() => setVocalModeEnabled((prev) => !prev)}
+          title="Mode vocal avancé : arrêt automatique sur silence"
+          disabled={isRecording}
+          className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            vocalModeEnabled
+              ? "bg-primary-DEFAULT text-white hover:bg-primary-hover"
+              : "text-slate-700 dark:text-slate-200 hover:bg-primary-light/10"
+          }`}
+        >
+          <i
+            className={`fa-solid ${
+              vocalModeEnabled ? "fa-waveform-lines" : "fa-headset"
+            }`}
+          ></i>
+        </button>
         {isGenerating && (
-          <button onClick={onStop} title="Arrêter la génération (Esc)" className="w-10 h-10 flex-shrink-0 flex items-center justify-center text-error hover:bg-error/10 rounded-full transition-colors">
+          <button
+            onClick={onStop}
+            title="Arrêter la génération (Esc)"
+            className="w-10 h-10 flex-shrink-0 flex items-center justify-center text-error hover:bg-error/10 rounded-full transition-colors"
+          >
             <i className="fa-solid fa-stop"></i>
           </button>
         )}
@@ -113,6 +136,15 @@ export const InputBar: React.FC<InputBarProps> = ({
             {isRecording && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>Enregistrement...</span>}
             {isTranscribing && <span>Transcription locale...</span>}
             {error && <span className="text-error">{error}</span>}
+            {vocalModeEnabled && isRecording && !error && (
+              <span className="flex items-center gap-1 text-primary-DEFAULT dark:text-primary-light">
+                <i className="fa-solid fa-person-chalkboard"></i>
+                {turnState === "calibrating" && <span>Calibration bruit...</span>}
+                {turnState === "monitoring" && <span>Écoute active</span>}
+                {turnState === "listening" && <span>Voix détectée</span>}
+                {turnState === "silenceHold" && <span>Silence détecté</span>}
+              </span>
+            )}
           </div>
         )}
       </div>
