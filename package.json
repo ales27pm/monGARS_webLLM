@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "node scripts/run-vitest.mjs",
     "tauri:icons": "node scripts/prepare-icons.mjs",
     "tauri:prepare": "npm run tauri:icons && npm run build",
     "ci:pipeline": "tsx scripts/pipeline-ci.ts"

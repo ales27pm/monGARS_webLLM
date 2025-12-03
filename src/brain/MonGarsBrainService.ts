@@ -1,6 +1,7 @@
 import { webLLMService } from "../services/WebLLMService";
 import type { ChatMessage } from "../services/WebLLMService.types";
 import type { Message } from "../context/ChatContext";
+import { EmbeddingMemory } from "../../memory";
 
 /**
  * Minimal reasoning trace structure.
@@ -60,6 +61,9 @@ class MonGarsBrainService {
   private messages: Message[] = [];
   private isBusy = false;
 
+  private semanticMemory: EmbeddingMemory | null = null;
+  private semanticMemoryWarmup: Promise<void> | null = null;
+
   // Stubs for future richer features – kept fully defined and stable.
   private reasoningTrace: ReasoningTrace | null = null;
   private memoryStats: MemoryStats = {
@@ -110,6 +114,8 @@ class MonGarsBrainService {
       totalEntries: 0,
       lastHitScore: null,
     };
+    this.semanticMemory?.clear();
+    this.semanticMemoryWarmup = null;
     this.broadcast();
   }
 
@@ -139,6 +145,7 @@ class MonGarsBrainService {
       id: nextId(),
       role: "user",
       content: trimmed,
+      timestamp: Date.now(),
     };
 
     this.messages = [...this.messages, userMessage];
@@ -153,7 +160,10 @@ class MonGarsBrainService {
           content: message.content,
         }));
 
-      const completion = await webLLMService.completeChat(history, {
+      const { history: augmentedHistory } =
+        await this.enrichHistoryWithSemanticMemory(history, userMessage);
+
+      const completion = await webLLMService.completeChat(augmentedHistory, {
         temperature: 0.7,
         maxTokens: 256,
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
@@ -164,6 +174,7 @@ class MonGarsBrainService {
           id: nextId(),
           role: "assistant",
           content: "",
+          timestamp: Date.now(),
         };
         this.messages = [...this.messages, assistantMessage];
         this.broadcast();
@@ -178,6 +189,8 @@ class MonGarsBrainService {
         }
         if (!received) {
           this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
+        } else {
+          await this.recordAssistantInMemory(assistantMessage);
         }
         // Do not append completion.text when stream was used to avoid duplicate assistant messages
       } else {
@@ -187,8 +200,10 @@ class MonGarsBrainService {
             id: nextId(),
             role: "assistant",
             content: sanitized,
+            timestamp: Date.now(),
           };
           this.messages = [...this.messages, assistantMessage];
+          await this.recordAssistantInMemory(assistantMessage);
         }
       }
 
@@ -202,11 +217,6 @@ class MonGarsBrainService {
         },
       };
 
-      // In a future iteration, memoryStats will reflect real semantic memory.
-      this.memoryStats = {
-        ...this.memoryStats,
-        totalEntries: this.memoryStats.totalEntries,
-      };
     } catch (error: unknown) {
       const message =
         error instanceof Error
@@ -222,6 +232,75 @@ class MonGarsBrainService {
     } finally {
       this.isBusy = false;
       this.broadcast();
+    }
+  }
+
+  private async ensureSemanticMemoryReady(): Promise<EmbeddingMemory> {
+    const memory = this.semanticMemory ?? new EmbeddingMemory(96);
+    this.semanticMemory = memory;
+
+    if (!this.semanticMemoryWarmup) {
+      this.semanticMemoryWarmup = memory
+        .warmup()
+        .catch((error) =>
+          console.warn("Semantic memory warmup failed", error),
+        );
+    }
+
+    await this.semanticMemoryWarmup;
+    return memory;
+  }
+
+  private async enrichHistoryWithSemanticMemory(
+    history: ChatMessage[],
+    userMessage: Message,
+  ): Promise<{ history: ChatMessage[]; bestScore: number | null }> {
+    try {
+      const memory = await this.ensureSemanticMemoryReady();
+
+      await memory.addMessage(userMessage);
+      const results = await memory.search(userMessage.content, 6);
+      const bestScore = results.length > 0 ? results[0].score : null;
+      const contextSummary = memory.formatSummaries(results);
+
+      const augmentedHistory =
+        contextSummary.trim().length > 0 && history.length > 0
+          ? [
+              ...history.slice(0, -1),
+              {
+                role: "system",
+                content: `Mémoire sémantique pertinente :\n${contextSummary}`,
+              },
+              history[history.length - 1],
+            ]
+          : history;
+
+      this.memoryStats = {
+        totalEntries: memory.getEntryCount(),
+        lastHitScore: bestScore,
+      };
+
+      return { history: augmentedHistory, bestScore };
+    } catch (error) {
+      console.warn("Impossible d'enrichir l'historique avec la mémoire", error);
+      this.memoryStats = {
+        totalEntries: this.semanticMemory?.getEntryCount() ?? 0,
+        lastHitScore: null,
+      };
+      return { history, bestScore: null };
+    }
+  }
+
+  private async recordAssistantInMemory(message: Message): Promise<void> {
+    try {
+      const memory = await this.ensureSemanticMemoryReady();
+      await memory.addMessage(message);
+      this.memoryStats = {
+        ...this.memoryStats,
+        totalEntries: memory.getEntryCount(),
+      };
+    } catch (error) {
+      console.warn("Impossible d'enregistrer la réponse dans la mémoire", error);
     }
   }
 
