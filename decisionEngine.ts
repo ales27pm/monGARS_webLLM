@@ -575,6 +575,15 @@ export type DecisionHints = {
   freshDataHint?: string | null;
 };
 
+const formatToolSpecPrompt = (config: Config) => {
+  const searchBase = config.searchApiBase || "https://api.duckduckgo.com";
+  const providerLabel = `Recherche web DuckDuckGo via ${searchBase}`;
+
+  return config.toolSearchEnabled
+    ? `${providerLabel} (GET ?q=...&format=json&no_html=1). Utilise search pour les données récentes, sinon réponds directement.`
+    : "Recherche web désactivée pour cette session; choisis respond sauf indication explicite contraire.";
+};
+
 export const buildDecisionMessages = (
   inputText: string,
   recentHistory: Message[],
@@ -655,47 +664,46 @@ const normalizeModelJsonOutput = (output: unknown): string => {
   return (candidate ?? cleaned).trim();
 };
 
-const normalizeNextActionDecision = (
-  raw: unknown,
-): { action: "respond" | "search"; query: string | null; plan: string; rationale: string } => {
-  let parsed: any;
-
-  try {
-    const normalized = normalizeModelJsonOutput(raw);
-    parsed = JSON.parse(normalized);
-  } catch {
-    parsed = null;
-  }
-
-  const action = parsed?.action === "search" ? "search" : "respond";
-  const query = typeof parsed?.query === "string" ? parsed.query.trim() : null;
-  const plan =
-    typeof parsed?.plan === "string" && parsed.plan.trim()
-      ? parsed.plan.trim()
-      : "1) Analyser la question\n2) Identifier les informations utiles\n3) Répondre clairement";
-  const rationale =
-    typeof parsed?.rationale === "string" && parsed.rationale.trim()
-      ? parsed.rationale.trim()
-      : action === "search"
-      ? "Recherche nécessaire pour données fraîches ou vérification."
-      : "Réponse directe suffisante avec le contexte actuel.";
-
-  return { action, query: action === "search" ? query : null, plan, rationale };
-};
-
 export async function decideNextActionFromMessages(
   engine: MLCEngine,
   messagesForPlanning: { role: string; content: string }[],
+  toolSpecPrompt: string,
+  freshDataHint?: string | null,
+  signal?: AbortSignal,
 ): Promise<{ action: "respond" | "search"; query: string | null; plan: string; rationale: string }> {
+  const planningUserMessage = [...messagesForPlanning]
+    .reverse()
+    .find((msg) => msg.role === "user");
+
+  const planningContent = planningUserMessage?.content ?? "";
+  const planningHistory = messagesForPlanning
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .map((msg) => ({ role: msg.role, content: msg.content }));
+
+  const decisionMessages = buildDecisionMessages(
+    planningContent,
+    planningHistory,
+    toolSpecPrompt,
+    freshDataHint ? { freshDataHint } : undefined,
+  );
+
   const decisionCompletion = await engine.chat.completions.create({
-    messages: messagesForPlanning,
-    temperature: 0.1,
-    max_tokens: 512,
+    messages: decisionMessages,
+    temperature: 0.2,
+    max_tokens: 256,
     stream: false,
+    signal,
   });
 
   const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
-  return normalizeNextActionDecision(raw);
+  const normalized = normalizeDecision(raw);
+
+  return {
+    action: normalized.action,
+    query: normalized.action === "search" ? normalized.query ?? null : null,
+    plan: normalized.plan,
+    rationale: normalized.rationale,
+  };
 }
 
 export async function decideNextAction(
@@ -714,13 +722,32 @@ export async function decideNextAction(
     externalEvidence: externalEvidence ?? null,
   });
 
+  const toolSpecPrompt = formatToolSpecPrompt(config);
+
+  const freshDataHint =
+    context.slices.debug.taskCategory === "needs_web"
+      ? "La requête semble dépendre de données récentes (scores, actualités, mises à jour)."
+      : null;
+
   const normalizedDecision = await decideNextActionFromMessages(
     engine,
     context.messagesForPlanning,
+    toolSpecPrompt,
+    freshDataHint,
   );
 
+  const action: "respond" | "search" =
+    normalizedDecision.action === "search" && config.toolSearchEnabled
+      ? "search"
+      : "respond";
+
+  const query = action === "search" ? normalizedDecision.query : null;
+
   return {
-    ...normalizedDecision,
+    action,
+    query,
+    plan: normalizedDecision.plan,
+    rationale: normalizedDecision.rationale,
     debugContext: context.slices.debug,
     context,
   } satisfies NextActionDecision;
