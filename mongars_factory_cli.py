@@ -28,13 +28,14 @@ from __future__ import annotations
 
 import importlib
 import json
+import shlex
 import os
 import shutil
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -142,10 +143,25 @@ def _ensure_script_exists(script: Path) -> None:
         raise FileNotFoundError(f"Script not found: {script}")
 
 
+def _ensure_within_project_root(path: Path, project_root: Path) -> None:
+    root = project_root.resolve()
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise PermissionError(
+            f"Scripts must be located under project_root {root}, got {resolved}"
+        ) from exc
+
+
 def _dict_to_cli_args(args: Dict[str, str]) -> list[str]:
     """
     Convert {"output_dir": "./data", "langs": "en,fr"} to:
-        ["--output_dir", "./data", "--langs", "en,fr"]
+        ["--output-dir", "./data", "--langs", "en,fr"]
+
+    Target scripts must declare hyphenated argparse flags (e.g.,
+    ``parser.add_argument("--output-dir", ...)``). Argparse will reject the
+    underscored forms shown in the raw dict keys.
     """
     cli: list[str] = []
     for key, value in args.items():
@@ -327,7 +343,11 @@ def _build_env(
 
 
 def _timestamp_slug() -> str:
-    return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _start_run_dir(base_dir: Path, label: str) -> Path:
@@ -354,8 +374,8 @@ def _run_subprocess(
     """
     if not isinstance(command, list) or not command:
         raise ValueError("command must be a non-empty list of arguments")
-
-    cmd_str = " ".join(command)
+    safe_command = [str(part) for part in command]
+    cmd_str = " ".join(shlex.quote(part) for part in safe_command)
     _log_info(f"Executing: {cmd_str}")
 
     if dry_run:
@@ -365,12 +385,10 @@ def _run_subprocess(
     start = time.time()
     log_handle = log_file.open("a", encoding="utf-8") if log_file else None
     if log_handle:
-        log_handle.write(
-            f"# Command: {cmd_str}\n# Started: {datetime.utcnow().isoformat()}Z\n\n"
-        )
+        log_handle.write(f"# Command: {cmd_str}\n# Started: {_utc_now()}\n\n")
     try:
         proc = subprocess.Popen(
-            command,
+            safe_command,
             env=env,
             cwd=str(cwd) if cwd else None,
             stdout=subprocess.PIPE,
@@ -397,10 +415,10 @@ def _run_subprocess(
             _log_error(
                 f"Command failed with exit code {proc.returncode}: {cmd_str}"
             )
-            raise subprocess.CalledProcessError(proc.returncode, command)
+            raise subprocess.CalledProcessError(proc.returncode, safe_command)
     finally:
         if log_handle:
-            log_handle.write(f"\n# Finished: {datetime.utcnow().isoformat()}Z\n")
+            log_handle.write(f"\n# Finished: {_utc_now()}\n")
             log_handle.flush()
             log_handle.close()
     end = time.time()
@@ -428,6 +446,7 @@ def run_stage(
         _log_warn(f"Stage '{stage_name}' is disabled; skipping.")
         return 0.0
 
+    _ensure_within_project_root(cfg.script, project_root)
     _ensure_script_exists(cfg.script)
     _log_box(f"RUNNING STAGE: {stage_name}")
 
@@ -465,6 +484,7 @@ def run_unsloth_task(
         _log_warn("Unsloth SFT is disabled; skipping all tasks.")
         return 0.0
 
+    _ensure_within_project_root(cfg.script, project_root)
     _ensure_script_exists(cfg.script)
     _log_box(f"RUNNING UNSLOTH TASK: {task_name}")
 
@@ -583,7 +603,7 @@ def cli_run_datasets(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "datasets")
-    started_at = f"{datetime.utcnow().isoformat()}Z"
+    started_at = _utc_now()
     elapsed = run_stage(
         "datasets",
         cfg.datasets,
@@ -599,7 +619,7 @@ def cli_run_datasets(
         {
             "command": "run-datasets",
             "started_at": started_at,
-            "finished_at": f"{datetime.utcnow().isoformat()}Z",
+            "finished_at": _utc_now(),
             "elapsed_seconds": elapsed,
             "model_profile": cfg.model_profile,
             "log_file": str(run_dir / "datasets.log"),
@@ -619,7 +639,7 @@ def cli_run_embeddings(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "embeddings")
-    started_at = f"{datetime.utcnow().isoformat()}Z"
+    started_at = _utc_now()
     elapsed = run_stage(
         "embeddings",
         cfg.embeddings,
@@ -635,7 +655,7 @@ def cli_run_embeddings(
         {
             "command": "run-embeddings",
             "started_at": started_at,
-            "finished_at": f"{datetime.utcnow().isoformat()}Z",
+            "finished_at": _utc_now(),
             "elapsed_seconds": elapsed,
             "model_profile": cfg.model_profile,
             "log_file": str(run_dir / "embeddings.log"),
@@ -669,7 +689,7 @@ def cli_run_sft(
     unsloth_cfg = cfg.unsloth
     run_label = f"run_sft_{task}" if task else "run_sft_all"
     run_dir = _start_run_dir(cfg.run_logs_dir, run_label)
-    started_at = f"{datetime.utcnow().isoformat()}Z"
+    started_at = _utc_now()
     summary: list[dict[str, Any]] = []
 
     if not unsloth_cfg.tasks:
@@ -679,7 +699,7 @@ def cli_run_sft(
             {
                 "command": "run-sft",
                 "started_at": started_at,
-                "finished_at": f"{datetime.utcnow().isoformat()}Z",
+                "finished_at": _utc_now(),
                 "elapsed_seconds": 0.0,
                 "tasks": [],
                 "log_dir": str(run_dir),
@@ -711,7 +731,7 @@ def cli_run_sft(
                 "command": "run-sft",
                 "task": task,
                 "started_at": started_at,
-                "finished_at": f"{datetime.utcnow().isoformat()}Z",
+                "finished_at": _utc_now(),
                 "elapsed_seconds": elapsed,
                 "tasks": [task],
                 "model_profile": cfg.model_profile,
@@ -748,7 +768,7 @@ def cli_run_sft(
         {
             "command": "run-sft",
             "started_at": started_at,
-            "finished_at": f"{datetime.utcnow().isoformat()}Z",
+            "finished_at": _utc_now(),
             "elapsed_seconds": total_time,
             "tasks": summary,
             "model_profile": cfg.model_profile,
@@ -774,7 +794,7 @@ def cli_run_export(
         raise typer.Exit(code=1)
 
     run_dir = _start_run_dir(cfg.run_logs_dir, "export")
-    started_at = f"{datetime.utcnow().isoformat()}Z"
+    started_at = _utc_now()
     summary: list[dict[str, Any]] = []
 
     gguf_elapsed = run_stage(
@@ -808,7 +828,7 @@ def cli_run_export(
         {
             "command": "run-export",
             "started_at": started_at,
-            "finished_at": f"{datetime.utcnow().isoformat()}Z",
+            "finished_at": _utc_now(),
             "elapsed_seconds": gguf_elapsed + mlc_elapsed,
             "model_profile": cfg.model_profile,
             "log_files": summary,
@@ -832,7 +852,7 @@ def cli_run_all(
 
     grand_total = 0.0
     summary: list[dict[str, Any]] = []
-    started_at = f"{datetime.utcnow().isoformat()}Z"
+    started_at = _utc_now()
     run_dir = _start_run_dir(cfg.run_logs_dir, "run_all")
     exit_code = 0
 
@@ -937,7 +957,7 @@ def cli_run_all(
         {
             "command": "run-all",
             "started_at": started_at,
-            "finished_at": f"{datetime.utcnow().isoformat()}Z",
+            "finished_at": _utc_now(),
             "elapsed_seconds": grand_total,
             "stages": summary,
             "model_profile": cfg.model_profile,
