@@ -770,7 +770,7 @@ Règles :
           memoryResults: contextForAnswer.slices.memoryResults,
           memoryContextSummary: contextForAnswer.slices.memorySummary,
           usedExternalTool: shouldSearch,
-          notes: [],
+          notes: decision.notes,
         }),
       );
 

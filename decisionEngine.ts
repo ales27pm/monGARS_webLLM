@@ -11,6 +11,13 @@ import { DEFAULT_MODEL_ID } from "./models";
 export const MODEL_ID = DEFAULT_MODEL_ID;
 export const MAX_CONTEXT_MESSAGES = 12;
 
+const buildFallbackSearchQuery = (text: string, maxLength = 160) => {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length < 4) return null;
+
+  return normalized.slice(0, maxLength);
+};
+
 const SAFETY_INTENT_CHECK =
   "Vérifie sécurité/intention : réponds aux sujets informatifs grand public (ex. chiens de traîneau, météo locale, fonctionnement d'un produit courant) quand aucune action nuisible n'est demandée; refuse clairement si l'utilisateur cherche à fabriquer/utiliser des armes, malwares, contournements de sécurité ou toute aide dangereuse.";
 
@@ -569,6 +576,7 @@ export type NextActionDecision = {
   rationale: string;
   debugContext: ContextBuildResult["slices"]["debug"];
   context: ContextBuildResult;
+  notes: string[];
 };
 
 export type DecisionHints = {
@@ -670,7 +678,13 @@ export async function decideNextActionFromMessages(
   toolSpecPrompt: string,
   freshDataHint?: string | null,
   signal?: AbortSignal,
-): Promise<{ action: "respond" | "search"; query: string | null; plan: string; rationale: string }> {
+): Promise<{
+  action: "respond" | "search";
+  query: string | null;
+  plan: string;
+  rationale: string;
+  notes: string[];
+}> {
   const planningUserMessage = [...messagesForPlanning]
     .reverse()
     .find((msg) => msg.role === "user");
@@ -697,12 +711,37 @@ export async function decideNextActionFromMessages(
 
   const raw = decisionCompletion.choices?.[0]?.message?.content ?? "";
   const normalized = normalizeDecision(raw);
+  const notes: string[] = [...normalized.warnings];
+
+  const searchWasFlipped =
+    normalized.diagnostics.actionFlip === "searchToRespond" &&
+    !normalized.query;
+
+  let action = normalized.action;
+  let query = normalized.action === "search" ? normalized.query ?? null : null;
+
+  if ((normalized.action === "search" && !query) || searchWasFlipped) {
+    const fallbackQuery = buildFallbackSearchQuery(planningContent);
+    if (fallbackQuery) {
+      query = fallbackQuery;
+      action = "search";
+      notes.push(
+        "Requête absente dans la décision : utilisation du message utilisateur comme requête de recherche.",
+      );
+    } else {
+      action = "respond";
+      notes.push(
+        "Recherche demandée sans requête exploitable : repli sur une réponse directe.",
+      );
+    }
+  }
 
   return {
-    action: normalized.action,
-    query: normalized.action === "search" ? normalized.query ?? null : null,
+    action,
+    query: action === "search" ? query : null,
     plan: normalized.plan,
     rationale: normalized.rationale,
+    notes,
   };
 }
 
@@ -748,6 +787,7 @@ export async function decideNextAction(
     query,
     plan: normalizedDecision.plan,
     rationale: normalizedDecision.rationale,
+    notes: normalizedDecision.notes,
     debugContext: context.slices.debug,
     context,
   } satisfies NextActionDecision;
