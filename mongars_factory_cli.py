@@ -182,7 +182,9 @@ def _load_config(config_path: Path) -> Dict[str, Any]:
             raise RuntimeError(
                 "PyYAML is required for YAML configs. Install it or provide JSON."
             )
-        obj = yaml.safe_load(text)
+        # Import yaml only if available and needed
+        yaml_module = importlib.import_module("yaml")
+        obj = yaml_module.safe_load(text)
     else:
         # Fallback to JSON regardless of YAML availability
         try:
@@ -218,8 +220,8 @@ def _parse_stage_config(
     args_raw = raw.get("args", {}) or {}
     args = {str(k): str(v) for k, v in args_raw.items()}
     env_raw = raw.get("env", {}) or {}
-        task_env = {str(k): str(v) for k, v in env_raw.items()}
-        tasks[name] = UnslothTaskConfig(name=name, args=args, env=task_env)
+    env = {str(k): str(v) for k, v in env_raw.items()}
+    timeout_raw = raw.get("timeout_seconds")
     timeout_seconds = None
     if timeout_raw is not None:
         try:
