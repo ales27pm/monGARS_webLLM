@@ -16,8 +16,19 @@ export type ExternalToolKind =
 
 const detectToolKind = (input: string): ExternalToolKind => {
   const lower = input.toLowerCase();
+  const weatherKeywords = [
+    "météo",
+    "meteo",
+    "weather",
+    "température",
+    "temperature",
+    "degre",
+    "degré",
+    "°c",
+    "°f",
+  ];
 
-  if (lower.includes("météo") || lower.includes("meteo") || lower.includes("weather")) {
+  if (weatherKeywords.some((kw) => lower.includes(kw))) {
     return "weather";
   }
 
@@ -49,10 +60,17 @@ const detectToolKind = (input: string): ExternalToolKind => {
 };
 
 const extractCityFromInput = (input: string, fallback: string): string => {
-  const m =
-    input.match(/m[ée]t[ée]o\s+(?:de|du|pour)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i) ||
-    input.match(/weather\s+(?:in|for)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i);
-  if (m && m[1]) return m[1].trim();
+  const regexes = [
+    /m[ée]t[ée]o\s+(?:de|du|pour|a|à)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i,
+    /weather\s+(?:in|for)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i,
+    /temp[ée]rature(?:\s+actuelle)?\s+(?:a|à|pour|en)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s-]+)/i,
+  ];
+
+  for (const regex of regexes) {
+    const match = input.match(regex);
+    if (match?.[1]) return match[1].trim();
+  }
+
   return fallback;
 };
 
