@@ -223,7 +223,9 @@ export class SpeechService {
     this.recordingChunks = [];
   }
 
-  private async transcribeBlob(blob: Blob): Promise<string> {
+  private currentTranscriptionAbort: AbortController | null = null;
+
+  private async transcribeBlob(blob: Blob, signal?: AbortSignal): Promise<string> {
     const asr = await ensurePipeline(
       "automatic-speech-recognition",
       "Xenova/whisper-small",
@@ -239,23 +241,97 @@ export class SpeechService {
       audioData = data;
       sampleRate = rate;
     } catch (e) {
+      if ((signal as any)?.aborted) return "";
       console.error("Audio decoding failed", e);
       return "";
     }
 
-    const result = await asr(
-      { array: audioData, sampling_rate: sampleRate },
-      {
-        chunk_length_s: 15,
-        stride_length_s: [4, 2],
-      },
-    );
+    try {
+      const result = await asr(
+        { array: audioData, sampling_rate: sampleRate },
+        {
+          chunk_length_s: 15,
+          stride_length_s: [4, 2],
+          signal,
+        } as any,
+      );
+      if (typeof result.text === "string") {
+        return result.text.trim();
+      }
+      return "";
+    } catch (e) {
+      if ((signal as any)?.aborted) {
+        // Swallow aborts
+        return "";
+      }
+      console.error("ASR failed", e);
+      return "";
+    }
+  }
 
-    if (typeof result.text === "string") {
-      return result.text.trim();
+  private async handleTranscription(blob: Blob): Promise<void> {
+    if (blob.size === 0) {
+      this.setSpeechState({
+        lastError: "Aucun audio n'a été capturé.",
+        isRecording: false,
+        mode: "idle",
+      });
+      return;
     }
 
-    return "";
+    if (this.isTranscribing) {
+      // Cancel the previous one and continue with the latest blob
+      this.currentTranscriptionAbort?.abort();
+    }
+
+    this.isTranscribing = true;
+    const aborter = new AbortController();
+    this.currentTranscriptionAbort = aborter;
+
+    try {
+      const transcript = await this.transcribeBlob(blob, aborter.signal);
+      if (aborter.signal.aborted) return;
+
+      if (!transcript) {
+        this.setSpeechState({
+          lastError: "La transcription est vide.",
+          isRecording: false,
+          mode: "idle",
+        });
+        return;
+      }
+
+      this.setSpeechState({
+        lastTranscript: transcript,
+        lastError: null,
+        isRecording: false,
+        mode: "idle",
+      });
+
+      await this.onTranscription(transcript);
+    } catch (err) {
+      if (!aborter.signal.aborted) {
+        console.error("Transcription error", err);
+        this.setSpeechState({
+          lastError: "La transcription a échoué. Vérifie le micro ou réessaie.",
+          isRecording: false,
+          mode: "idle",
+        });
+      }
+    } finally {
+      if (this.currentTranscriptionAbort === aborter) {
+        this.currentTranscriptionAbort = null;
+      }
+      this.isTranscribing = false;
+    }
+  }
+
+  stopSpeechCapture(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+      this.mediaRecorder.stop();
+    }
+    // Also cancel any ongoing transcription promptly
+    this.currentTranscriptionAbort?.abort();
   }
 
   private isTranscribing = false;
