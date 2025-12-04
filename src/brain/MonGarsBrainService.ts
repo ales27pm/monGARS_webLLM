@@ -87,7 +87,21 @@ class MonGarsBrainService {
   constructor() {
     this.speechService = new SpeechService({
       onStateChange: () => this.broadcast(),
-      onTranscription: (transcript) => this.sendUserMessage(transcript),
+      onTranscription: (transcript) => {
+        if (this.isBusy) {
+          const notice = {
+            id: nextId(),
+            role: "assistant" as const,
+            content: "Déjà en cours de réponse. Réessaie dans un instant.",
+            timestamp: Date.now(),
+            error: true,
+          };
+          this.messages = [...this.messages, notice];
+          this.broadcast();
+          return;
+        }
+        return this.sendUserMessage(transcript);
+      },
     });
   }
 
