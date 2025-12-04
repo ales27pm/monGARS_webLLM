@@ -358,14 +358,13 @@ export class SpeechService {
         description: "French voice, clear and warm",
       });
       const audioArray = output.audio as Float32Array;
+      if (!(audioArray instanceof Float32Array)) {
+        throw new Error("TTS output audio is not Float32Array");
+      }
       const sampleRate = (output as any).sampling_rate || 22050;
-      const audioContext = this.getAudioContext();
+      const audioContext = await this.ensureAudioContext();
 
-      const buffer = audioContext.createBuffer(
-        1,
-        audioArray.length,
-        sampleRate,
-      );
+      const buffer = audioContext.createBuffer(1, audioArray.length, sampleRate);
       buffer.copyToChannel(audioArray, 0);
 
       const source = audioContext.createBufferSource();
@@ -376,7 +375,17 @@ export class SpeechService {
         this.stopPlayback();
       };
       this.playbackSource = source;
-      source.start();
+      try {
+        source.start();
+      } catch (e) {
+        console.error("AudioBufferSourceNode.start failed", e);
+        this.setSpeechState({
+          lastError: "Lecture audio indisponible.",
+          mode: "idle",
+          isPlaying: false,
+        });
+        this.stopPlayback();
+      }
     } catch (err) {
       console.error("TTS error", err);
       this.setSpeechState({
