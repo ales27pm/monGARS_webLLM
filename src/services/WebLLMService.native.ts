@@ -37,18 +37,17 @@ class NativeBackend implements MonGarsEngine {
     options: CompletionOptions,
   ): Promise<CompletionResult> {
     const generator = await this.loadGenerator();
-    const normalizedMessages = messages.filter((msg) => msg.content);
+    const normalizedMessages = messages.filter((msg) => msg.content !== null);
     const systemContent = normalizedMessages.find((msg) => msg.role === "system")
       ?.content;
-    const recentHistory = normalizedMessages
-      .filter((msg) => msg.role !== "system")
+    const nonSystem = normalizedMessages.filter((msg) => msg.role !== "system");
+    const recentHistory = nonSystem
       .slice(-3)
       .map((m) => `${m.role}: ${m.content}`)
       .join(" | ");
+    const lastNonSystemContent = nonSystem[nonSystem.length - 1]?.content ?? "";
 
-    const prompt = `${systemContent ?? ""}\n\n${recentHistory}\n\n${
-      normalizedMessages[normalizedMessages.length - 1]?.content ?? ""
-    }`;
+    const prompt = `${systemContent ?? ""}\n\n${recentHistory}\n\n${lastNonSystemContent}`;
 
     const output = await generator(prompt, {
       max_new_tokens: options.maxTokens,
