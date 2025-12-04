@@ -84,15 +84,18 @@ class MonGarsBrainService {
   };
   private speechService: SpeechService;
 
+  private pendingTranscripts: string[] = [];
+
   constructor() {
     this.speechService = new SpeechService({
       onStateChange: () => this.broadcast(),
       onTranscription: (transcript) => {
         if (this.isBusy) {
+          this.pendingTranscripts.push(transcript);
           const notice = {
             id: nextId(),
             role: "assistant" as const,
-            content: "Déjà en cours de réponse. Réessaie dans un instant.",
+            content: "Déjà en cours de réponse. Je traiterai ta demande ensuite.",
             timestamp: Date.now(),
             error: true,
           };
@@ -103,6 +106,119 @@ class MonGarsBrainService {
         return this.sendUserMessage(transcript);
       },
     });
+  }
+
+  async sendUserMessage(text: string): Promise<void> {
+    const trimmed = sanitizeUserInput(text);
+    if (!trimmed) {
+      return;
+    }
+
+    if (this.isBusy) {
+      const errorMessage: Message = {
+        id: nextId(),
+        role: "assistant",
+        content:
+          "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        timestamp: Date.now(),
+        error: true,
+      };
+      this.messages = [...this.messages, errorMessage];
+      return; // Do not proceed when busy
+    }
+
+    const userMessage: Message = {
+      id: nextId(),
+      role: "user",
+      content: trimmed,
+      timestamp: Date.now(),
+    };
+    this.messages = [...this.messages, userMessage];
+    this.isBusy = true;
+    this.broadcast();
+
+    try {
+      const history: ChatMessage[] = this.messages
+        .filter(
+          (m) => (m.role === "user" || m.role === "assistant") && !m.error,
+        )
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
+
+      const { history: augmentedHistory } =
+        await this.enrichHistoryWithSemanticMemory(history, userMessage);
+
+      const completion = await webLLMService.completeChat(augmentedHistory, {
+        temperature: 0.7,
+        maxTokens: 256,
+        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      });
+
+      if (completion.stream) {
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+        };
+        this.messages = [...this.messages, assistantMessage];
+        this.broadcast();
+
+        let received = false;
+        for await (const chunk of completion.stream) {
+          if (typeof chunk === "string" && chunk.length > 0) {
+            received = true;
+            assistantMessage.content += chunk;
+            this.broadcast();
+          }
+        }
+        if (!received) {
+          this.messages = this.messages.filter(
+            (m) => m.id !== assistantMessage.id,
+          );
+        } else {
+          await this.recordAssistantInMemory(assistantMessage);
+        }
+      } else if (completion.text) {
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: completion.text,
+          timestamp: Date.now(),
+        };
+        this.messages = [...this.messages, assistantMessage];
+        await this.recordAssistantInMemory(assistantMessage);
+      }
+
+      await this.refreshReasoningTrace(userMessage);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Erreur inconnue";
+      const errorMessage: Message = {
+        id: nextId(),
+        role: "assistant",
+        content: `Erreur lors de la génération : ${message}`,
+        timestamp: Date.now(),
+        error: true,
+      };
+      this.messages = [...this.messages, errorMessage];
+    } finally {
+      this.isBusy = false;
+      this.broadcast();
+
+      // Drain queued transcripts
+      if (this.pendingTranscripts.length > 0) {
+        const next = this.pendingTranscripts.shift()!;
+        // Fire and forget; any further queuing handled by busy guard
+        void this.sendUserMessage(next);
+      }
+    }
   }
 
   private buildSemanticMemoryClient(): SemanticMemoryClient | null {
