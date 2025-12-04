@@ -10,7 +10,8 @@ export const MODEL_LIBRARY_VERSION = "v0_2_79";
 
 export const MODEL_LIBRARY_BASE_URL = `https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/${MODEL_LIBRARY_VERSION}/`;
 
-export const DEFAULT_MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f32_1-MLC";
+// 🔧 New default: Llama-3.2-1B-Instruct-q4f32_1-MLC
+export const DEFAULT_MODEL_ID = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
 
 export const MODEL_REGISTRY: Record<string, ModelMetadata> = {
   "Qwen2.5-0.5B-Instruct-q4f32_1-MLC": {
@@ -21,21 +22,36 @@ export const MODEL_REGISTRY: Record<string, ModelMetadata> = {
     description:
       "Optimisé pour l'exécution locale avec une quantification q4f32_1 stable et réactive.",
   },
+
+  // ✅ New q4f32_1 Llama 1B entry (default)
+  "Llama-3.2-1B-Instruct-q4f32_1-MLC": {
+    id: "Llama-3.2-1B-Instruct-q4f32_1-MLC",
+    label: "Llama 3.2 1B Instruct q4f32_1",
+    shortLabel: "L3.2 1B q4f32_1",
+    wasmFilename: "Llama-3.2-1B-Instruct-q4f32_1-ctx4k_cs1k-webgpu.wasm",
+    description:
+      "Llama 3.2 1B quantifié en q4f32_1 pour un bon équilibre entre qualité et VRAM.",
+  },
+
+  // Old q4f16_1 variant kept as an alternative
   "Llama-3.2-1B-Instruct-q4f16_1-MLC": {
     id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     label: "Llama 3.2 1B q4f16_1",
     wasmFilename: "Llama-3.2-1B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
   },
+
   "Llama-3.2-3B-Instruct-q4f16_1-MLC": {
     id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
     label: "Llama 3.2 3B q4f16_1",
     wasmFilename: "Llama-3.2-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
   },
+
   "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC": {
     id: "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
     label: "TinyLlama 1.1B Chat q4f16_1",
     wasmFilename: "TinyLlama-1.1B-Chat-v0.4-q4f16_1-ctx4k_cs1k-webgpu.wasm",
   },
+
   "Mistral-7B-Instruct-v0.3-q4f16_1-MLC": {
     id: "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
     label: "Mistral 7B Instruct q4f16_1",
