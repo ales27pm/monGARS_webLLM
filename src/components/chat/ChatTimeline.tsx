@@ -90,8 +90,7 @@ const ChatTimeline: React.FC<ChatTimelineProps> = ({
             Le moteur a bégayé
           </div>
           <div style={{ color: palette.muted, marginTop: 4 }}>
-            {lastErrorMessage ||
-              "Relance ou change de modèle pour continuer en local."}
+            {lastErrorMessage}
           </div>
         </div>
       ) : null}
