@@ -64,6 +64,83 @@ export class SpeechService {
     return this.audioContext;
   }
 
+  private async transcribeBlob(blob: Blob): Promise<string> {
+    const asr = await ensurePipeline(
+      "automatic-speech-recognition",
+      "Xenova/whisper-small",
+    );
+
+    const audioContext = await this.ensureAudioContext();
+    const { audioData, sampleRate } = await blobToFloat32AudioData(
+      blob,
+      audioContext,
+    );
+
+    const result = await asr(
+      { array: audioData, sampling_rate: sampleRate },
+      {
+        chunk_length_s: 15,
+        stride_length_s: [4, 2],
+      },
+    );
+
+    if (typeof result.text === "string") {
+      return result.text.trim();
+    }
+
+    return "";
+  }
+
+  async speakText(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    this.stopPlayback();
+    this.setSpeechState({
+      mode: "speaking",
+      isPlaying: true,
+      lastError: null,
+    });
+
+    try {
+      const tts = await ensurePipeline(
+        "text-to-speech",
+        "Xenova/parler-tts-mini-v1",
+      );
+      const output = await tts(trimmed, {
+        description: "French voice, clear and warm",
+      });
+      const audioArray = output.audio as Float32Array;
+      const sampleRate = (output as any).sampling_rate || 22050;
+      const audioContext = await this.ensureAudioContext();
+
+      const buffer = audioContext.createBuffer(
+        1,
+        audioArray.length,
+        sampleRate,
+      );
+      buffer.copyToChannel(audioArray, 0);
+
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.onended = () => {
+        this.setSpeechState({ mode: "idle", isPlaying: false });
+        this.stopPlayback();
+      };
+      this.playbackSource = source;
+      source.start();
+    } catch (err) {
+      console.error("TTS error", err);
+      this.setSpeechState({
+        lastError: "La synthèse vocale a échoué.",
+        mode: "idle",
+        isPlaying: false,
+      });
+      this.stopPlayback();
+    }
+  }
+
   private stopPlayback(): void {
     if (this.playbackSource) {
       try {
