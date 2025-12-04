@@ -196,14 +196,11 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
                 </span>
               </p>
             )}
-            {voiceSupportError && (
-              <p className="text-amber-200 text-sm font-medium">
-                {voiceSupportError}
-              </p>
-            )}
-            {!voiceSupportError && error && (
+            {voiceSupportError ? (
+              <p className="text-amber-200 text-sm font-medium">{voiceSupportError}</p>
+            ) : error ? (
               <p className="text-error text-sm font-medium">{error}</p>
-            )}
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
