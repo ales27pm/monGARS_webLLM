@@ -21,6 +21,23 @@ export function useMonGarsBrain() {
     [],
   );
 
+  const startSpeechCapture = useCallback(
+    () => monGarsBrain.startSpeechCapture(),
+    [],
+  );
+
+  const stopSpeechCapture = useCallback(
+    () => monGarsBrain.stopSpeechCapture(),
+    [],
+  );
+
+  const speakText = useCallback((text: string) => monGarsBrain.speakText(text), []);
+
+  const stopSpeechOutput = useCallback(
+    () => monGarsBrain.stopSpeechOutput(),
+    [],
+  );
+
   const resetConversation = useCallback(
     () => monGarsBrain.resetConversation(),
     [],
@@ -30,5 +47,9 @@ export function useMonGarsBrain() {
     ...snapshot,
     sendUserMessage,
     resetConversation,
+    startSpeechCapture,
+    stopSpeechCapture,
+    speakText,
+    stopSpeechOutput,
   };
 }

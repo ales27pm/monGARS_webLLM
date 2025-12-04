@@ -5,6 +5,7 @@ import { decideNextAction } from "../../decisionEngine";
 import type { Config, MLCEngine, Message } from "../../types";
 import type { SemanticMemoryClient } from "../../contextEngine";
 import { DEFAULT_MODEL_ID } from "../../models";
+import { SpeechService } from "./SpeechService";
 
 /**
  * Minimal reasoning trace structure.
@@ -22,12 +23,7 @@ export interface MemoryStats {
   lastHitScore: number | null;
 }
 
-export interface SpeechState {
-  mode: "idle" | "listening" | "speaking";
-  isRecording: boolean;
-  isPlaying: boolean;
-  lastError: string | null;
-}
+export type { SpeechState } from "./SpeechService";
 
 export interface MonGarsBrainSnapshot {
   messages: Message[];
@@ -86,12 +82,144 @@ class MonGarsBrainService {
     totalEntries: 0,
     lastHitScore: null,
   };
-  private speechState: SpeechState = {
-    mode: "idle",
-    isRecording: false,
-    isPlaying: false,
-    lastError: null,
-  };
+  private speechService: SpeechService;
+
+  private pendingTranscripts: string[] = [];
+
+  constructor() {
+    this.speechService = new SpeechService({
+      onStateChange: () => this.broadcast(),
+      onTranscription: (transcript) => {
+        if (this.isBusy) {
+          this.pendingTranscripts.push(transcript);
+          const notice = {
+            id: nextId(),
+            role: "assistant" as const,
+            content: "Déjà en cours de réponse. Je traiterai ta demande ensuite.",
+            timestamp: Date.now(),
+            error: true,
+          };
+          this.messages = [...this.messages, notice];
+          this.broadcast();
+          return;
+        }
+        return this.sendUserMessage(transcript);
+      },
+    });
+  }
+
+  async sendUserMessage(text: string): Promise<void> {
+    const trimmed = sanitizeUserInput(text);
+    if (!trimmed) {
+      return;
+    }
+
+    if (this.isBusy) {
+      const errorMessage: Message = {
+        id: nextId(),
+        role: "assistant",
+        content:
+          "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        timestamp: Date.now(),
+        error: true,
+      };
+      this.messages = [...this.messages, errorMessage];
+      return; // Do not proceed when busy
+    }
+
+    const userMessage: Message = {
+      id: nextId(),
+      role: "user",
+      content: trimmed,
+      timestamp: Date.now(),
+    };
+    this.messages = [...this.messages, userMessage];
+    this.isBusy = true;
+    this.broadcast();
+
+    try {
+      const history: ChatMessage[] = this.messages
+        .filter(
+          (m) => (m.role === "user" || m.role === "assistant") && !m.error,
+        )
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
+
+      const { history: augmentedHistory } =
+        await this.enrichHistoryWithSemanticMemory(history, userMessage);
+
+      const completion = await webLLMService.completeChat(augmentedHistory, {
+        temperature: 0.7,
+        maxTokens: 256,
+        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      });
+
+      if (completion.stream) {
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+        };
+        this.messages = [...this.messages, assistantMessage];
+        this.broadcast();
+
+        let received = false;
+        for await (const chunk of completion.stream) {
+          if (typeof chunk === "string" && chunk.length > 0) {
+            received = true;
+            assistantMessage.content += chunk;
+            this.broadcast();
+          }
+        }
+        if (!received) {
+          this.messages = this.messages.filter(
+            (m) => m.id !== assistantMessage.id,
+          );
+        } else {
+          await this.recordAssistantInMemory(assistantMessage);
+        }
+      } else if (completion.text) {
+        const assistantMessage: Message = {
+          id: nextId(),
+          role: "assistant",
+          content: completion.text,
+          timestamp: Date.now(),
+        };
+        this.messages = [...this.messages, assistantMessage];
+        await this.recordAssistantInMemory(assistantMessage);
+      }
+
+      await this.refreshReasoningTrace(userMessage);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Erreur inconnue";
+      const errorMessage: Message = {
+        id: nextId(),
+        role: "assistant",
+        content: `Erreur lors de la génération : ${message}`,
+        timestamp: Date.now(),
+        error: true,
+      };
+      this.messages = [...this.messages, errorMessage];
+    } finally {
+      this.isBusy = false;
+      this.broadcast();
+
+      // Drain queued transcripts
+      if (this.pendingTranscripts.length > 0) {
+        const next = this.pendingTranscripts.shift()!;
+        // Fire and forget; any further queuing handled by busy guard
+        void this.sendUserMessage(next);
+      }
+    }
+  }
 
   private buildSemanticMemoryClient(): SemanticMemoryClient | null {
     if (!this.semanticMemory) return null;
@@ -137,7 +265,7 @@ class MonGarsBrainService {
       messages: this.messages,
       reasoningTrace: this.reasoningTrace,
       memoryStats: this.memoryStats,
-      speechState: this.speechState,
+      speechState: this.speechService.getSpeechState(),
       isBusy: this.isBusy,
     };
   }
@@ -157,6 +285,22 @@ class MonGarsBrainService {
     this.broadcast();
   }
 
+  async startSpeechCapture(): Promise<void> {
+    await this.speechService.startSpeechCapture();
+  }
+
+  stopSpeechCapture(): void {
+    this.speechService.stopSpeechCapture();
+  }
+
+  async speakText(text: string): Promise<void> {
+    await this.speechService.speakText(text);
+  }
+
+  stopSpeechOutput(): void {
+    this.speechService.stopSpeechOutput();
+  }
+
   /**
    * Main entry point: push a user message, ask WebLLM for a reply,
    * record an assistant message and notify subscribers of all steps.
@@ -171,7 +315,8 @@ class MonGarsBrainService {
       const errorMessage: Message = {
         id: nextId(),
         role: "assistant",
-        content: "Je suis déjà en train de répondre. Réessayez dans un instant.",
+        content:
+          "Je suis déjà en train de répondre. Réessayez dans un instant.",
         timestamp: Date.now(),
         error: true,
       };
@@ -193,7 +338,9 @@ class MonGarsBrainService {
 
     try {
       const history: ChatMessage[] = this.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.error)
+        .filter(
+          (m) => (m.role === "user" || m.role === "assistant") && !m.error,
+        )
         .map((message) => ({
           role: message.role,
           content: message.content,
@@ -227,7 +374,9 @@ class MonGarsBrainService {
           }
         }
         if (!received) {
-          this.messages = this.messages.filter((m) => m.id !== assistantMessage.id);
+          this.messages = this.messages.filter(
+            (m) => m.id !== assistantMessage.id,
+          );
         } else {
           await this.recordAssistantInMemory(assistantMessage);
         }
@@ -247,7 +396,6 @@ class MonGarsBrainService {
       }
 
       await this.refreshReasoningTrace(userMessage);
-
     } catch (error: unknown) {
       const message =
         error instanceof Error
@@ -274,9 +422,7 @@ class MonGarsBrainService {
     if (!this.semanticMemoryWarmup) {
       this.semanticMemoryWarmup = memory
         .warmup()
-        .catch((error) =>
-          console.warn("Semantic memory warmup failed", error),
-        );
+        .catch((error) => console.warn("Semantic memory warmup failed", error));
     }
 
     await this.semanticMemoryWarmup;
@@ -332,15 +478,17 @@ class MonGarsBrainService {
         totalEntries: memory.getEntryCount(),
       };
     } catch (error) {
-      console.warn("Impossible d'enregistrer la réponse dans la mémoire", error);
+      console.warn(
+        "Impossible d'enregistrer la réponse dans la mémoire",
+        error,
+      );
     }
   }
 
   private async refreshReasoningTrace(userMessage: Message): Promise<void> {
     try {
-      const engine = (await webLLMService.getCurrentEngine?.()) as
-        | MLCEngine
-        | null;
+      const engine =
+        (await webLLMService.getCurrentEngine?.()) as MLCEngine | null;
 
       if (!engine) {
         this.reasoningTrace = {
@@ -352,21 +500,18 @@ class MonGarsBrainService {
         return;
       }
 
-      const historyForContext = this.messages.reduce<Message[]>(
-        (acc, msg) => {
-          const alreadyAdded = acc.some((entry) => entry.id === msg.id);
-          if (alreadyAdded) return acc;
+      const historyForContext = this.messages.reduce<Message[]>((acc, msg) => {
+        const alreadyAdded = acc.some((entry) => entry.id === msg.id);
+        if (alreadyAdded) return acc;
 
-          if (msg.id === userMessage.id) {
-            acc.push(userMessage);
-          } else {
-            acc.push(msg);
-          }
+        if (msg.id === userMessage.id) {
+          acc.push(userMessage);
+        } else {
+          acc.push(msg);
+        }
 
-          return acc;
-        },
-        [],
-      );
+        return acc;
+      }, []);
 
       const decision = await decideNextAction(
         engine,
@@ -378,7 +523,8 @@ class MonGarsBrainService {
       );
 
       this.reasoningTrace = {
-        summary: decision.plan || decision.rationale || "Trace de décision générée.",
+        summary:
+          decision.plan || decision.rationale || "Trace de décision générée.",
         raw: {
           decision,
           context: decision.context,

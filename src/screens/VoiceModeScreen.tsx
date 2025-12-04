@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import VoiceInput from "../components/VoiceInput";
 import { palette } from "../theme";
 import { useChatContext } from "../context/ChatContext";
@@ -11,7 +11,12 @@ const VoiceModeScreen: React.FC<Props> = () => {
   const [lastTranscript, setLastTranscript] = useState(
     "Aucune requête capturée pour l'instant.",
   );
-  const { speechState } = useChatContext();
+  const {
+    speechState,
+    startSpeechCapture,
+    stopSpeechCapture,
+    isGenerating,
+  } = useChatContext();
 
   const listening = speechState.mode === "listening" || speechState.isRecording;
   const speaking = speechState.mode === "speaking" || speechState.isPlaying;
@@ -21,6 +26,24 @@ const VoiceModeScreen: React.FC<Props> = () => {
     () => "Utilise le micro navigateur avec fallback clavier.",
     [],
   );
+
+  useEffect(() => {
+    if (speechState.lastTranscript) {
+      setLastTranscript(speechState.lastTranscript);
+    }
+  }, [speechState.lastTranscript]);
+
+  const handleCapture = async () => {
+    try {
+      if (listening) {
+        stopSpeechCapture();
+      } else if (!speaking && !isGenerating) {
+        await startSpeechCapture();
+      }
+    } catch (error) {
+      console.error("Voice capture toggle failed", error);
+    }
+  };
 
   return (
     <div style={{ color: palette.text, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -69,12 +92,10 @@ const VoiceModeScreen: React.FC<Props> = () => {
           />
         </div>
         <VoiceInput
-          onSpeak={(text) => {
-            setLastTranscript(text);
-          }}
+          onCapture={handleCapture}
           speechState={speechState}
           disabled={Boolean(speechError)}
-          busy={listening || speaking}
+          busy={listening || speaking || isGenerating}
         />
         <div
           style={{
