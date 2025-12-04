@@ -50,9 +50,16 @@ export class SpeechService {
     this.onStateChange(this.speechState);
   }
 
-  private getAudioContext(): AudioContext {
+  private async ensureAudioContext(): Promise<AudioContext> {
     if (!this.audioContext) {
       this.audioContext = new AudioContext();
+    }
+    if (this.audioContext.state === "suspended") {
+      try {
+        await this.audioContext.resume();
+      } catch (e) {
+        console.warn("Failed to resume AudioContext", e);
+      }
     }
     return this.audioContext;
   }
