@@ -57,11 +57,26 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     [windowRef],
   );
 
-  const isChromeOnIos = useMemo(() => {
+  const isIos = useMemo(() => {
     if (!windowRef) return false;
-    const nav = windowRef.navigator;
-    if (!nav || !nav.userAgent) return false;
-    return /CriOS/i.test(nav.userAgent);
+    const ua = windowRef.navigator?.userAgent || "";
+    const platform = (windowRef.navigator as any)?.platform || "";
+    // Detect iOS and iPadOS (including iPadOS 13+ which reports as Mac)
+    const isIOSUA = /iPhone|iPad|iPod/i.test(ua);
+    const isIPadOS13Up =
+      /Macintosh/i.test(ua) && "ontouchend" in (windowRef as any);
+    return isIOSUA || isIPadOS13Up || /iPad|iPhone|iPod/i.test(platform);
+  }, [windowRef]);
+
+  const isSafari = useMemo(() => {
+    if (!windowRef) return false;
+    const ua = windowRef.navigator?.userAgent || "";
+    // Rough Safari detection: excludes Chrome/Firefox Edge on iOS which also use WebKit
+    const isWebKit = /WebKit/i.test(ua);
+    const isNotCriOS = !/CriOS/i.test(ua);
+    const isNotFxiOS = !/FxiOS/i.test(ua);
+    const isNotEdgiOS = !/EdgiOS/i.test(ua);
+    return isWebKit && isNotCriOS && isNotFxiOS && isNotEdgiOS;
   }, [windowRef]);
 
   const voiceSupportError = useMemo(() => {
@@ -73,8 +88,9 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       return "Active HTTPS pour utiliser la dictée vocale (obligatoire pour l'accès au micro).";
     }
 
-    if (isChromeOnIos) {
-      return "Chrome sur iOS ne supporte pas la dictée vocale. Utilise Safari ou un navigateur compatible.";
+    // On iOS, only Safari may support speech; other browsers are not supported.
+    if (isIos && !isSafari) {
+      return "Ce navigateur iOS ne supporte pas la dictée vocale. Utilise Safari.";
     }
 
     if (!hasNativeRecognition) {
@@ -82,7 +98,7 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     }
 
     return null;
-  }, [hasNativeRecognition, isChromeOnIos, windowRef]);
+  }, [hasNativeRecognition, isIos, isSafari, windowRef]);
 
   const isVoiceSupported = !voiceSupportError;
 
