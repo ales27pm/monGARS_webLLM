@@ -171,7 +171,11 @@ export function useVoiceConversationLoop({
     if (!isVoiceSupported) return;
     if (isRecording || isTranscribing || isSpeaking || isGenerating) return;
 
-    startRecording();
+    const t = setTimeout(() => {
+      startRecording();
+    }, 100); // debounce to avoid tight loops on immediate failures
+
+    return () => clearTimeout(t);
   }, [
     autoLoop,
     isVoiceSupported,
