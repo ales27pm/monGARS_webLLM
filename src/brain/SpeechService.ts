@@ -396,6 +396,12 @@ export class SpeechService {
   async startSpeechCapture(): Promise<void> {
     if (this.mediaRecorder) return;
 
+    // Prevent feedback/overlap: don't start recording while speaking
+    if (this.speechState.mode === "speaking" || this.speechState.isPlaying) {
+      await this.stopPlayback();
+      this.setSpeechState({ mode: "idle", isPlaying: false });
+    }
+
     const canRecordAudio =
       typeof navigator !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia;
@@ -411,11 +417,16 @@ export class SpeechService {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.recordingStream = stream;
 
-      const options: MediaRecorderOptions | undefined =
-        typeof MediaRecorder !== "undefined" &&
-        MediaRecorder.isTypeSupported("audio/webm")
-          ? { mimeType: "audio/webm" }
-          : undefined;
+      let options: MediaRecorderOptions | undefined;
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm")) {
+          options = { mimeType: "audio/webm" };
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          options = { mimeType: "audio/ogg" };
+        } else {
+          options = undefined; // Let the browser choose default if none supported
+        }
+      }
 
       const recorder = new MediaRecorder(stream, options);
       this.recordingChunks = [];
@@ -437,7 +448,9 @@ export class SpeechService {
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(this.recordingChunks, { type: "audio/webm" });
+        const blobType =
+          options && "mimeType" in options ? (options as any).mimeType : undefined;
+        const blob = new Blob(this.recordingChunks, { type: blobType });
         this.cleanupRecorder();
         await this.handleTranscription(blob);
       };
