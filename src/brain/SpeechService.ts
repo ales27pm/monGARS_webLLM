@@ -141,34 +141,77 @@ export class SpeechService {
     }
   }
 
-  private async stopPlayback(): Promise<void> {
-    if (this.playbackSource) {
-      try {
-        // Ensure an AudioContext exists to safely manage nodes
-        await this.ensureAudioContext().catch(() => undefined);
+  async startSpeechCapture(): Promise<void> {
+    if (this.mediaRecorder) return;
 
-        // Prevent onended recursion and detach safely
-        this.playbackSource.onended = null;
-
-        try {
-          this.playbackSource.disconnect();
-        } catch {
-          // Ignore disconnect errors if already disconnected
-        }
-
-        // Some browsers throw if stop() is called after ended; wrap defensively
-        if (typeof (this.playbackSource as any).stop === "function") {
-          try {
-            this.playbackSource.stop(0);
-          } catch {
-            // Ignore InvalidStateError when already stopped
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to stop playback", err);
-      }
+    // Prevent capturing while speaking; stop any playback first
+    if (this.speechState.mode === "speaking" || this.speechState.isPlaying) {
+      await this.stopPlayback();
+      this.setSpeechState({ mode: "idle", isPlaying: false });
     }
-    this.playbackSource = null;
+
+    const canRecordAudio =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia;
+
+    if (!canRecordAudio) {
+      this.setSpeechState({
+        lastError: "La capture audio n'est pas disponible dans ce navigateur.",
+      });
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.recordingStream = stream;
+
+      const options: MediaRecorderOptions | undefined =
+        typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported("audio/webm")
+          ? { mimeType: "audio/webm" }
+          : undefined;
+
+      const recorder = new MediaRecorder(stream, options);
+      this.recordingChunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          this.recordingChunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        console.error("Recorder error", event);
+        this.setSpeechState({
+          lastError: "Erreur lors de la capture audio.",
+          isRecording: false,
+          mode: "idle",
+        });
+        this.cleanupRecorder();
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(this.recordingChunks, { type: "audio/webm" });
+        this.cleanupRecorder();
+        await this.handleTranscription(blob);
+      };
+
+      recorder.start();
+      this.mediaRecorder = recorder;
+      this.setSpeechState({
+        mode: "listening",
+        isRecording: true,
+        lastError: null,
+      });
+    } catch (err) {
+      console.error("Microphone access failed", err);
+      this.setSpeechState({
+        lastError: "Impossible d'accéder au micro.",
+        isRecording: false,
+        mode: "idle",
+      });
+      this.cleanupRecorder();
+    }
   }
 
   private cleanupRecorder(): void {
