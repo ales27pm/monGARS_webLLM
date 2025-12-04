@@ -10,7 +10,7 @@ export const MODEL_LIBRARY_VERSION = "v0_2_79";
 
 export const MODEL_LIBRARY_BASE_URL = `https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/${MODEL_LIBRARY_VERSION}/`;
 
-// 🔧 New default: Llama-3.2-1B-Instruct-q4f32_1-MLC
+// Smallest Llama-3 variant (≈1 B params, q4f32_1) – quick to download, fits mobile VRAM
 export const DEFAULT_MODEL_ID = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
 
 export const MODEL_REGISTRY: Record<string, ModelMetadata> = {
@@ -26,11 +26,11 @@ export const MODEL_REGISTRY: Record<string, ModelMetadata> = {
   // ✅ New q4f32_1 Llama 1B entry (default)
   "Llama-3.2-1B-Instruct-q4f32_1-MLC": {
     id: "Llama-3.2-1B-Instruct-q4f32_1-MLC",
-    label: "Llama 3.2 1B Instruct q4f32_1",
-    shortLabel: "L3.2 1B q4f32_1",
+    label: "Llama 3.2 1B q4f32_1 (fastest)",
+    shortLabel: "Llama-3 1B",
     wasmFilename: "Llama-3.2-1B-Instruct-q4f32_1-ctx4k_cs1k-webgpu.wasm",
     description:
-      "Llama 3.2 1B quantifié en q4f32_1 pour un bon équilibre entre qualité et VRAM.",
+      "Small Llama-3 encoder-decoder distilled to 1 B parameters, quantisé q4f32_1 pour les GPU mobiles.",
   },
 
   // Old q4f16_1 variant kept as an alternative

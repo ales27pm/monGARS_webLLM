@@ -12,7 +12,6 @@ export interface CompletionOptions {
   maxTokens: number;
   stream?: boolean;
   signal?: AbortSignal;
-  systemPrompt?: string;
 }
 
 export interface CompletionResult {
