@@ -61,6 +61,8 @@ export function useVoiceConversationLoop({
     isSpeaking,
     lastTranscript,
     error,
+    isVoiceSupported,
+    voiceSupportError,
     vocalModeEnabled,
     setVocalModeEnabled,
     turnState,
@@ -166,11 +168,17 @@ export function useVoiceConversationLoop({
 
   useEffect(() => {
     if (!autoLoop || engineStatus !== "ready") return;
+    if (!isVoiceSupported) return;
     if (isRecording || isTranscribing || isSpeaking || isGenerating) return;
 
-    startRecording();
+    const t = setTimeout(() => {
+      startRecording();
+    }, 100); // debounce to avoid tight loops on immediate failures
+
+    return () => clearTimeout(t);
   }, [
     autoLoop,
+    isVoiceSupported,
     engineStatus,
     isGenerating,
     isRecording,
@@ -193,6 +201,7 @@ export function useVoiceConversationLoop({
   }, [stopRecording]);
 
   const micStateLabel = useMemo(() => {
+    if (voiceSupportError) return "Navigateur incompatible";
     if (error) return "Erreur micro";
     if (isSpeaking) return "Lecture de la réponse";
     if (isGenerating) return "Génération en cours";
@@ -257,5 +266,6 @@ export function useVoiceConversationLoop({
     listeningActive,
     queueCount,
     recentTurns,
+    voiceSupportError,
   };
 }
