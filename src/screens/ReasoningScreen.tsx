@@ -4,6 +4,7 @@ import ReasoningVisualizer from "../components/ReasoningVisualizer";
 import { palette } from "../theme";
 import { detectGpuMode } from "../services/GpuService";
 import type { GpuMode } from "../services/GpuService.types";
+import { AgenticOrchestratorPanel } from "../components/AgenticOrchestratorPanel";
 
 const reasoningSteps = [
   "Reformulation claire de la demande",
@@ -90,6 +91,15 @@ const ReasoningScreen: React.FC<Props> = () => {
         loading={gpuLoading}
         error={gpuError ?? undefined}
       />
+      <div
+        style={{
+          alignSelf: "stretch",
+          width: "100%",
+          maxWidth: 900,
+        }}
+      >
+        <AgenticOrchestratorPanel />
+      </div>
       <div
         style={{
           alignSelf: "stretch",
