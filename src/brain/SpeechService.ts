@@ -110,6 +110,8 @@ export class SpeechService {
     return "";
   }
 
+  private isTranscribing = false;
+
   private async handleTranscription(blob: Blob): Promise<void> {
     if (blob.size === 0) {
       this.setSpeechState({
@@ -120,6 +122,13 @@ export class SpeechService {
       return;
     }
 
+    if (this.isTranscribing) {
+      // Drop or queue behavior; here we drop to avoid overlap
+      console.warn("Transcription already in progress, dropping new blob.");
+      return;
+    }
+
+    this.isTranscribing = true;
     try {
       const transcript = await this.transcribeBlob(blob);
       if (!transcript) {
@@ -146,6 +155,8 @@ export class SpeechService {
         isRecording: false,
         mode: "idle",
       });
+    } finally {
+      this.isTranscribing = false;
     }
   }
 
