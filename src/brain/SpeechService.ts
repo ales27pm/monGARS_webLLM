@@ -186,10 +186,19 @@ export class SpeechService {
       "Xenova/whisper-small",
     );
 
-    const { audioData, sampleRate } = await blobToFloat32AudioData(
-      blob,
-      this.getAudioContext(),
-    );
+    let audioData: Float32Array;
+    let sampleRate: number;
+    try {
+      const { audioData: data, sampleRate: rate } = await blobToFloat32AudioData(
+        blob,
+        await this.ensureAudioContext(),
+      );
+      audioData = data;
+      sampleRate = rate;
+    } catch (e) {
+      console.error("Audio decoding failed", e);
+      return "";
+    }
 
     const result = await asr(
       { array: audioData, sampling_rate: sampleRate },
