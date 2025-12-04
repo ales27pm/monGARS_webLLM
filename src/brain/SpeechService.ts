@@ -141,12 +141,21 @@ export class SpeechService {
     }
   }
 
-  private stopPlayback(): void {
+  private async stopPlayback(): Promise<void> {
     if (this.playbackSource) {
       try {
-        // Only stop if the node has not already finished
+        // Ensure an AudioContext exists to safely manage nodes
+        await this.ensureAudioContext().catch(() => undefined);
+
+        // Prevent onended recursion and detach safely
         this.playbackSource.onended = null;
-        this.playbackSource.disconnect();
+
+        try {
+          this.playbackSource.disconnect();
+        } catch {
+          // Ignore disconnect errors if already disconnected
+        }
+
         // Some browsers throw if stop() is called after ended; wrap defensively
         if (typeof (this.playbackSource as any).stop === "function") {
           try {
