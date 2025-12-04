@@ -1,7 +1,4 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ensurePipeline } from "./speechPipeline";
-import { useAudioPlayback } from "./useAudioPlayback";
-import { blobToFloat32AudioData } from "./speechUtils";
 import { TurnDetectionConfig, useTurnDetection } from "./useTurnDetection";
 
 type UseSpeechOptions = {
@@ -10,10 +7,12 @@ type UseSpeechOptions = {
   turnDetectionConfig?: Partial<TurnDetectionConfig>;
 };
 
-const ASR_MODEL = "Xenova/whisper-small";
-const TTS_MODEL = "Xenova/parler-tts-mini-v1";
+type RecognitionCtor = new () => SpeechRecognition;
 
-type MediaRecorderOptions = ConstructorParameters<typeof MediaRecorder>[1];
+type MediaAccess = {
+  stream: MediaStream | null;
+  error: string | null;
+};
 
 function supportsNativeRecognition(win: Window | undefined): boolean {
   if (!win) return false;
@@ -28,6 +27,11 @@ function supportsNativeTts(win: Window | undefined): boolean {
   );
 }
 
+function getRecognitionCtor(win: Window | undefined): RecognitionCtor | null {
+  if (!win) return null;
+  return (win as any).SpeechRecognition || (win as any).webkitSpeechRecognition;
+}
+
 export function useSpeech(options: UseSpeechOptions = {}) {
   const {
     onTranscription,
@@ -35,15 +39,9 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     turnDetectionConfig,
   } = options;
   const windowRef = typeof window !== "undefined" ? window : undefined;
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const {
-    getAudioContext,
-    sourceRef: ttsSourceRef,
-    resetPlayback,
-  } = useAudioPlayback();
+  const audioContextRef = useRef<AudioContext | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -61,17 +59,17 @@ export function useSpeech(options: UseSpeechOptions = {}) {
 
   const hasNativeTts = useMemo(() => supportsNativeTts(windowRef), [windowRef]);
 
-  const { turnState } = useTurnDetection({
-    enabled: vocalModeEnabled && isRecording,
-    stream: activeStream,
-    getAudioContext,
-    onTurnEnded: () => {
-      if (recorderRef.current?.state === "recording") {
-        recorderRef.current.stop();
-      }
-    },
-    config: turnDetectionConfig,
-  });
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    if (audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume().catch((err) => {
+        console.warn("Failed to resume AudioContext", err);
+      });
+    }
+    return audioContextRef.current;
+  }, []);
 
   const setRecordingFlags = (recording: boolean, transcribing: boolean) => {
     setIsRecording(recording);
@@ -89,201 +87,148 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     recognitionRef.current.stop();
     recognitionRef.current = null;
     setRecordingFlags(false, false);
-  }, []);
+    stopStreamTracks(streamRef.current);
+    streamRef.current = null;
+    setActiveStream(null);
+  }, [stopStreamTracks]);
 
-  const transcribeBlob = useCallback(
-    async (blob: Blob) => {
-      const asr = await ensurePipeline(
-        "automatic-speech-recognition",
-        ASR_MODEL,
-      );
-      const { audioData, sampleRate } = await blobToFloat32AudioData(
-        blob,
-        getAudioContext(),
-      );
-      const result = await asr(
-        { array: audioData, sampling_rate: sampleRate },
-        {
-          chunk_length_s: 15,
-          stride_length_s: [4, 2],
-          language: "french",
-        },
-      );
+  const { turnState } = useTurnDetection({
+    enabled: vocalModeEnabled && isRecording,
+    stream: activeStream,
+    getAudioContext,
+    onTurnEnded: () => stopNativeRecognition(),
+    config: turnDetectionConfig,
+  });
 
-      if (typeof result.text === "string") {
-        return result.text.trim();
-      }
-
-      return "";
-    },
-    [getAudioContext],
-  );
-
-  const startNativeRecognition = useCallback(async () => {
-    setError(null);
-    setRecordingFlags(true, true);
-
-    const RecognitionCtor =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    const recognition = new RecognitionCtor();
-    recognition.lang = "fr-FR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || "";
-      setLastTranscript(transcript);
-      onTranscription?.(transcript);
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error("Native speech recognition error", event.error);
-      recognitionRef.current = null;
-      setRecordingFlags(false, false);
-      setError(
-        "La transcription vocale du navigateur a échoué. Vérifie ton micro et réessaie.",
-      );
-    };
-
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setRecordingFlags(false, false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  }, [onTranscription]);
-
-  const startMediaRecorder = useCallback(async () => {
+  const requestMicStream = useCallback(async (): Promise<MediaAccess> => {
     const canRecordAudio =
       typeof navigator !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia;
 
     if (!canRecordAudio) {
-      setError("La dictée vocale n'est pas disponible sur cet appareil.");
-      return;
+      return { stream: null, error: "La capture audio est indisponible." };
     }
 
-    if (typeof MediaRecorder === "undefined") {
-      setError("La capture audio n'est pas supportée par ce navigateur.");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return { stream, error: null };
+    } catch (err) {
+      console.error("Microphone permission failed", err);
+      return {
+        stream: null,
+        error: "Impossible d'accéder au micro. Vérifie les permissions.",
+      };
+    }
+  }, []);
+
+  const startNativeRecognition = useCallback(async () => {
+    setError(null);
+    setRecordingFlags(true, true);
+
+    if (vocalModeEnabled) {
+      const { stream, error: streamError } = await requestMicStream();
+      if (streamError) {
+        setRecordingFlags(false, false);
+        setError(streamError);
+        return;
+      }
+      stopStreamTracks(streamRef.current);
+      streamRef.current = stream;
+      setActiveStream(stream);
+    } else {
+      setActiveStream(null);
+    }
+
+    const RecognitionCtor = getRecognitionCtor(windowRef);
+    if (!RecognitionCtor) {
+      setRecordingFlags(false, false);
+      setError(
+        "La reconnaissance vocale n'est pas disponible sur ce navigateur.",
+      );
       return;
     }
 
     try {
-      setError(null);
-      stopStreamTracks(streamRef.current);
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      const stream = streamRef.current;
-      const options: MediaRecorderOptions | undefined =
-        MediaRecorder.isTypeSupported("audio/webm")
-          ? { mimeType: "audio/webm" }
-          : MediaRecorder.isTypeSupported("audio/ogg")
-            ? { mimeType: "audio/ogg" }
-            : MediaRecorder.isTypeSupported("audio/mp4")
-              ? { mimeType: "audio/mp4" }
-              : undefined;
-      const recorder = new MediaRecorder(stream, options);
-      chunksRef.current = [];
+      const recognition = new RecognitionCtor();
+      recognition.lang = "fr-FR";
+      recognition.continuous = false;
+      recognition.interimResults = false;
 
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        setActiveStream(null);
-        setRecordingFlags(false, true);
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        chunksRef.current = [];
-
-        if (blob.size === 0) {
-          setError("Aucun audio enregistré.");
-          stopStreamTracks(streamRef.current);
-          streamRef.current = null;
-          return;
-        }
-
-        try {
-          const text = await transcribeBlob(blob);
-          setLastTranscript(text);
-          onTranscription?.(text);
-        } catch (transcriptionError) {
-          console.error("Transcription error", transcriptionError);
-          setError("La transcription a échoué. Vérifie ton micro et réessaie.");
-        } finally {
-          setIsTranscribing(false);
-          stopStreamTracks(streamRef.current);
-          streamRef.current = null;
-          recorderRef.current = null;
-        }
-      };
-
-      recorder.onerror = (event) => {
-        console.error("Recorder error", event);
-        setActiveStream(null);
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
+        setLastTranscript(transcript);
         setRecordingFlags(false, false);
-        setError("L'enregistrement a été interrompu.");
+        setActiveStream(null);
         stopStreamTracks(streamRef.current);
         streamRef.current = null;
-        recorderRef.current = null;
+        onTranscription?.(transcript);
       };
 
-      recorder.start();
-      recorderRef.current = recorder;
-      setRecordingFlags(true, false);
-      if (vocalModeEnabled) {
-        setActiveStream(stream);
-      }
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error("Native speech recognition error", event.error);
+        recognitionRef.current = null;
+        setRecordingFlags(false, false);
+        setActiveStream(null);
+        stopStreamTracks(streamRef.current);
+        streamRef.current = null;
+        setError(
+          "La transcription vocale du navigateur a échoué. Vérifie ton micro et réessaie.",
+        );
+      };
+
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        setRecordingFlags(false, false);
+        setActiveStream(null);
+        stopStreamTracks(streamRef.current);
+        streamRef.current = null;
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
     } catch (err) {
-      console.error("Microphone permission or initialization failed", err);
-      setError("Impossible d'accéder au micro. Vérifie les permissions.");
+      console.error("Native recognition init failed", err);
+      recognitionRef.current = null;
+      setRecordingFlags(false, false);
+      setActiveStream(null);
       stopStreamTracks(streamRef.current);
       streamRef.current = null;
-      setActiveStream(null);
+      setError(
+        "La dictée vocale a échoué. Vérifie les permissions micro et réessaie.",
+      );
     }
-  }, [onTranscription, transcribeBlob, vocalModeEnabled]);
+  }, [
+    onTranscription,
+    requestMicStream,
+    stopStreamTracks,
+    vocalModeEnabled,
+    windowRef,
+  ]);
 
   const startRecording = useCallback(async () => {
     if (isRecording || isTranscribing) {
       return;
     }
 
-    if (hasNativeRecognition) {
-      try {
-        await startNativeRecognition();
-        return;
-      } catch (err) {
-        console.error("Native speech recognition failed, falling back", err);
-        setRecordingFlags(false, false);
-        setError(
-          "La dictée vocale native a échoué. Nouvelle tentative avec la transcription locale...",
-        );
-      }
+    if (!hasNativeRecognition) {
+      setError("La dictée vocale n'est pas supportée par ce navigateur.");
+      return;
     }
 
-    await startMediaRecorder();
+    await startNativeRecognition();
   }, [
     hasNativeRecognition,
     isRecording,
     isTranscribing,
-    startMediaRecorder,
     startNativeRecognition,
   ]);
 
   const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      stopNativeRecognition();
-      return;
-    }
-
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
-    }
-  }, [stopNativeRecognition]);
+    stopNativeRecognition();
+    stopStreamTracks(streamRef.current);
+    streamRef.current = null;
+    setActiveStream(null);
+  }, [stopNativeRecognition, stopStreamTracks]);
 
   const getVoices = useCallback(async () => {
     if (!windowRef?.speechSynthesis) return [] as SpeechSynthesisVoice[];
@@ -345,43 +290,28 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     [getVoices],
   );
 
-  const speakWithModelTts = useCallback(
+  const speak = useCallback(
     async (text: string) => {
+      if (!text.trim()) {
+        return;
+      }
+
+      if (!hasNativeTts) {
+        setError("La synthèse vocale n'est pas supportée par ce navigateur.");
+        return;
+      }
+
       try {
-        setError(null);
-        setIsSpeaking(true);
-        resetPlayback();
-        const tts = await ensurePipeline("text-to-speech", TTS_MODEL);
-        const output = await tts(text, {
-          description: "French voice, clear and warm",
-        });
-        const audioArray = output.audio as Float32Array;
-        const sampleRate = (output as any).sampling_rate || 22050;
-        const audioContext = getAudioContext();
-        const buffer = audioContext.createBuffer(
-          1,
-          audioArray.length,
-          sampleRate,
-        );
-        buffer.copyToChannel(audioArray, 0);
-        const source = audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioContext.destination);
-        ttsSourceRef.current = source;
-        source.onended = () => {
-          setIsSpeaking(false);
-          resetPlayback();
-        };
-        source.start();
+        await speakWithNativeTts(text);
       } catch (err) {
-        console.error("TTS error", err);
+        console.error("Native TTS failed", err);
         setIsSpeaking(false);
         setError(
-          "La synthèse vocale a échoué. Réessaie ou réduit la longueur du texte.",
+          "La synthèse vocale du navigateur a échoué. Réessaie ou réduis la longueur du texte.",
         );
       }
     },
-    [getAudioContext, resetPlayback],
+    [hasNativeTts, speakWithNativeTts],
   );
 
   const stopSpeaking = useCallback(() => {
@@ -389,34 +319,12 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       if (hasNativeTts && window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
-      resetPlayback();
     } catch (err) {
       console.warn("Error while stopping speech", err);
     } finally {
       setIsSpeaking(false);
     }
-  }, [hasNativeTts, resetPlayback]);
-
-  const speak = useCallback(
-    async (text: string) => {
-      if (!text.trim()) {
-        return;
-      }
-
-      if (hasNativeTts) {
-        try {
-          await speakWithNativeTts(text);
-          return;
-        } catch (err) {
-          console.error("Native TTS failed, falling back", err);
-          setIsSpeaking(false);
-        }
-      }
-
-      await speakWithModelTts(text);
-    },
-    [hasNativeTts, speakWithModelTts, speakWithNativeTts],
-  );
+  }, [hasNativeTts]);
 
   return {
     startRecording,

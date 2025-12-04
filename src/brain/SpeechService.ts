@@ -1,5 +1,4 @@
-import { ensurePipeline } from "../../speechPipeline";
-import { blobToFloat32AudioData } from "../../speechUtils";
+type RecognitionCtor = new () => SpeechRecognition;
 
 export interface SpeechState {
   mode: "idle" | "listening" | "speaking";
@@ -23,18 +22,10 @@ export class SpeechService {
     lastTranscript: "",
   };
 
-  private mediaRecorder: MediaRecorder | null = null;
-  private recordingChunks: BlobPart[] = [];
-  private recordingStream: MediaStream | null = null;
-
-  private audioContext: AudioContext | null = null;
-  private playbackSource: AudioBufferSourceNode | null = null;
+  private recognition: SpeechRecognition | null = null;
 
   private readonly onStateChange: (speechState: SpeechState) => void;
   private readonly onTranscription: (text: string) => void | Promise<void>;
-
-  private currentTranscriptionAbort: AbortController | null = null;
-  private isTranscribing = false;
 
   constructor(options: SpeechServiceOptions = {}) {
     this.onStateChange = options.onStateChange ?? (() => {});
@@ -53,232 +44,97 @@ export class SpeechService {
     this.onStateChange(this.speechState);
   }
 
-  private async ensureAudioContext(): Promise<AudioContext> {
-    if (!this.audioContext) {
-      this.audioContext = new AudioContext();
-    }
-    if (this.audioContext.state === "suspended") {
-      try {
-        await this.audioContext.resume();
-      } catch (e) {
-        console.warn("Failed to resume AudioContext", e);
-      }
-    }
-    return this.audioContext;
-  }
-
   private stopPlayback(): void {
     try {
-      this.playbackSource?.stop();
+      if (typeof window !== "undefined" && window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+      }
     } catch (err) {
       console.warn("stopPlayback failed", err);
-    } finally {
-      this.playbackSource = null;
     }
   }
 
-  private cleanupRecorder(): void {
-    if (this.recordingStream) {
-      this.recordingStream.getTracks().forEach((track) => track.stop());
-    }
-    this.recordingStream = null;
-    this.mediaRecorder = null;
-    this.recordingChunks = [];
-  }
-
-  private async transcribeBlob(
-    blob: Blob,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    const asr = await ensurePipeline(
-      "automatic-speech-recognition",
-      "Xenova/whisper-small",
+  private getRecognitionCtor(): RecognitionCtor | null {
+    if (typeof window === "undefined") return null;
+    return (
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
     );
-
-    let audioData: Float32Array;
-    let sampleRate: number;
-    try {
-      const { audioData: data, sampleRate: rate } = await blobToFloat32AudioData(
-        blob,
-        await this.ensureAudioContext(),
-      );
-      audioData = data;
-      sampleRate = rate;
-    } catch (e) {
-      if ((signal as any)?.aborted) return "";
-      console.error("Audio decoding failed", e);
-      return "";
-    }
-
-    try {
-      const result = await asr(
-        { array: audioData, sampling_rate: sampleRate },
-        {
-          chunk_length_s: 15,
-          stride_length_s: [4, 2],
-          signal,
-        } as any,
-      );
-      if (typeof result.text === "string") {
-        return result.text.trim();
-      }
-      return "";
-    } catch (e) {
-      if ((signal as any)?.aborted) {
-        return "";
-      }
-      console.error("ASR failed", e);
-      return "";
-    }
   }
 
-  private async handleTranscription(blob: Blob): Promise<void> {
-    if (blob.size === 0) {
-      this.cleanupRecorder();
+  private startNativeRecognition(): void {
+    const RecognitionCtor = this.getRecognitionCtor();
+    if (!RecognitionCtor) {
       this.setSpeechState({
-        lastError: "Aucun audio n'a été capturé.",
-        isRecording: false,
-        mode: "idle",
+        lastError: "La reconnaissance vocale n'est pas disponible.",
       });
       return;
     }
 
-    if (this.isTranscribing) {
-      // Cancel the previous one and continue with the latest blob
-      this.currentTranscriptionAbort?.abort();
-    }
+    const recognition = new RecognitionCtor();
+    recognition.lang = "fr-FR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
 
-    this.isTranscribing = true;
-    const aborter = new AbortController();
-    this.currentTranscriptionAbort = aborter;
-
-    try {
-      const transcript = await this.transcribeBlob(blob, aborter.signal);
-      if (aborter.signal.aborted) return;
-
-      if (!transcript) {
-        this.setSpeechState({
-          lastError: "La transcription est vide.",
-          isRecording: false,
-          mode: "idle",
-        });
-        return;
-      }
-
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? "";
       this.setSpeechState({
         lastTranscript: transcript,
         lastError: null,
         isRecording: false,
         mode: "idle",
       });
+      this.onTranscription(transcript);
+    };
 
-      await this.onTranscription(transcript);
-    } catch (err) {
-      if (!aborter.signal.aborted) {
-        console.error("Transcription error", err);
-        this.setSpeechState({
-          lastError: "La transcription a échoué. Vérifie le micro ou réessaie.",
-          isRecording: false,
-          mode: "idle",
-        });
-      }
-    } finally {
-      if (this.currentTranscriptionAbort === aborter) {
-        this.currentTranscriptionAbort = null;
-      }
-      this.isTranscribing = false;
-    }
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("Native recognition error", event.error);
+      this.setSpeechState({
+        lastError:
+          "La reconnaissance vocale du navigateur a échoué. Vérifie ton micro et réessaie.",
+        isRecording: false,
+        mode: "idle",
+      });
+      this.recognition = null;
+    };
+
+    recognition.onend = () => {
+      this.setSpeechState({ isRecording: false, mode: "idle" });
+      this.recognition = null;
+    };
+
+    this.recognition = recognition;
+    recognition.start();
+    this.setSpeechState({
+      mode: "listening",
+      isRecording: true,
+      lastError: null,
+    });
   }
 
   async startSpeechCapture(): Promise<void> {
-    if (this.mediaRecorder) return;
+    if (this.recognition) return;
 
     if (this.speechState.mode === "speaking" || this.speechState.isPlaying) {
       await this.stopPlayback();
       this.setSpeechState({ mode: "idle", isPlaying: false });
     }
 
-    const canRecordAudio =
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia;
-
-    if (!canRecordAudio) {
-      this.setSpeechState({
-        lastError: "La capture audio n'est pas disponible dans ce navigateur.",
-      });
-      return;
-    }
-
-    if (typeof MediaRecorder === "undefined") {
-      this.setSpeechState({
-        lastError: "La capture audio n'est pas supportée par ce navigateur.",
-      });
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.recordingStream = stream;
-
-      let options: MediaRecorderOptions | undefined;
-      if (MediaRecorder.isTypeSupported("audio/webm")) {
-        options = { mimeType: "audio/webm" };
-      } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
-        options = { mimeType: "audio/ogg" };
-      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-        options = { mimeType: "audio/mp4" };
-      }
-
-      const recorder = new MediaRecorder(stream, options);
-      this.recordingChunks = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          this.recordingChunks.push(event.data);
-        }
-      };
-
-      recorder.onerror = (event) => {
-        console.error("Recorder error", event);
-        this.setSpeechState({
-          lastError: "Erreur lors de la capture audio.",
-          isRecording: false,
-          mode: "idle",
-        });
-        this.cleanupRecorder();
-      };
-
-      recorder.onstop = async () => {
-        const blobType =
-          options && "mimeType" in options ? (options as any).mimeType : undefined;
-        const blob = new Blob(this.recordingChunks, { type: blobType });
-        this.cleanupRecorder();
-        await this.handleTranscription(blob);
-      };
-
-      recorder.start();
-      this.mediaRecorder = recorder;
-      this.setSpeechState({
-        mode: "listening",
-        isRecording: true,
-        lastError: null,
-      });
-    } catch (err) {
-      console.error("Microphone access failed", err);
-      this.setSpeechState({
-        lastError: "Impossible d'accéder au micro.",
-        isRecording: false,
-        mode: "idle",
-      });
-      this.cleanupRecorder();
-    }
+    this.startNativeRecognition();
   }
 
   stopSpeechCapture(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
+    if (this.recognition) {
+      try {
+        this.recognition.onend = null;
+        this.recognition.onerror = null;
+        this.recognition.stop();
+      } catch (e) {
+        console.warn("Failed to stop recognition", e);
+      } finally {
+        this.recognition = null;
+      }
     }
-    this.currentTranscriptionAbort?.abort();
   }
 
   async speakText(text: string): Promise<void> {
@@ -286,6 +142,18 @@ export class SpeechService {
     if (!trimmed) return;
 
     this.stopPlayback();
+
+    if (
+      typeof window === "undefined" ||
+      typeof window.speechSynthesis === "undefined" ||
+      typeof (window as any).SpeechSynthesisUtterance === "undefined"
+    ) {
+      this.setSpeechState({
+        lastError: "La synthèse vocale du navigateur n'est pas disponible.",
+      });
+      return;
+    }
+
     this.setSpeechState({
       mode: "speaking",
       isPlaying: true,
@@ -293,42 +161,25 @@ export class SpeechService {
     });
 
     try {
-      const tts = await ensurePipeline(
-        "text-to-speech",
-        "Xenova/parler-tts-mini-v1",
-      );
-      const output = await tts(trimmed, {
-        description: "French voice, clear and warm",
-      });
-      const audioArray = output.audio as Float32Array;
-      if (!(audioArray instanceof Float32Array)) {
-        throw new Error("TTS output audio is not Float32Array");
-      }
-      const sampleRate = (output as any).sampling_rate || 22050;
-      const audioContext = await this.ensureAudioContext();
+      const utterance = new SpeechSynthesisUtterance(trimmed);
+      utterance.lang = "fr-FR";
 
-      const buffer = audioContext.createBuffer(1, audioArray.length, sampleRate);
-      buffer.copyToChannel(audioArray, 0);
-
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.onended = () => {
+      utterance.onend = () => {
         this.setSpeechState({ mode: "idle", isPlaying: false });
-        this.stopPlayback();
       };
-      this.playbackSource = source;
-      try {
-        source.start();
-      } catch (e) {
-        console.error("AudioBufferSourceNode.start failed", e);
+
+      utterance.onerror = (event) => {
+        console.error("Native TTS error", event.error);
         this.setSpeechState({
-          lastError: "Lecture audio indisponible.",
+          lastError:
+            "La synthèse vocale du navigateur a échoué. Réessaie ou vérifie tes paramètres audio.",
           mode: "idle",
           isPlaying: false,
         });
-        this.stopPlayback();
-      }
+      };
+
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.error("TTS error", err);
       this.setSpeechState({
@@ -336,7 +187,6 @@ export class SpeechService {
         mode: "idle",
         isPlaying: false,
       });
-      this.stopPlayback();
     }
   }
 
