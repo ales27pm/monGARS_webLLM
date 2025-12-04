@@ -82,3 +82,6 @@ export class GlobalErrorBoundary extends React.Component<
 
     return this.props.children;
   }
+}
+
+export default GlobalErrorBoundary;

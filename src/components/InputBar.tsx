@@ -5,12 +5,14 @@ interface InputBarProps {
   onSend: (text: string) => Promise<void>;
   disabled?: boolean;
   isLoading?: boolean;
+  helperText?: string;
 }
 
 const InputBar: React.FC<InputBarProps> = ({
   onSend,
   disabled = false,
   isLoading = false,
+  helperText,
 }) => {
   const [text, setText] = useState("");
 
@@ -21,6 +23,8 @@ const InputBar: React.FC<InputBarProps> = ({
     setText("");
   };
 
+  const sendingBlocked = disabled || isLoading;
+
   return (
     <div
       style={{
@@ -30,19 +34,23 @@ const InputBar: React.FC<InputBarProps> = ({
         background: palette.surface,
         borderTop: `1px solid ${palette.border}`,
         borderRadius: 10,
+        flexWrap: "wrap",
+        alignItems: "flex-start",
       }}
     >
       <input
         style={{
           flex: 1,
+          minWidth: 220,
           color: palette.text,
-          padding: 12,
+          padding: "clamp(10px, 2vw, 14px)",
           background: palette.elevated,
           borderRadius: 10,
           border: `1px solid ${palette.border}`,
           outline: "none",
+          fontSize: "clamp(14px, 1.6vw, 16px)",
         }}
-        placeholder="Ask Mon Gars..."
+        placeholder="Glisse ta commande locale…"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -52,33 +60,49 @@ const InputBar: React.FC<InputBarProps> = ({
           }
         }}
         disabled={disabled}
+        aria-disabled={disabled}
       />
-      {(() => {
-        const sendingBlocked = disabled || isLoading;
-        const cursorStyle = sendingBlocked ? "not-allowed" : "pointer";
-        return (
-          <button
-            type="button"
-            onClick={handleSend}
-            style={{
-              background: palette.accent,
-              color: "white",
-              border: "none",
-              padding: "12px 16px",
-              borderRadius: 10,
-              fontWeight: 700,
-              opacity: sendingBlocked ? 0.6 : 1,
-              cursor: cursorStyle,
-            }}
-            disabled={sendingBlocked}
-          >
-            {isLoading ? "En cours…" : "Envoyer"}
-          </button>
-        );
-      })()}
+      <button
+        type="button"
+        onClick={handleSend}
+        style={{
+          background: palette.accent,
+          color: "white",
+          border: "none",
+          padding: "clamp(10px, 2vw, 14px) clamp(12px, 2vw, 16px)",
+          borderRadius: 10,
+          fontWeight: 700,
+          opacity: sendingBlocked ? 0.6 : 1,
+          cursor: sendingBlocked ? "not-allowed" : "pointer",
+          fontSize: "clamp(14px, 1.6vw, 16px)",
+          minWidth: 96,
+        }}
+        disabled={sendingBlocked}
+        aria-disabled={sendingBlocked}
+      >
+        {isLoading ? "Ça mouline…" : "Lancer"}
+      </button>
       {isLoading ? (
-        <div style={{ color: palette.muted, fontSize: 12, alignSelf: "center" }}>
-          Génération en cours…
+        <div
+          style={{
+            color: palette.muted,
+            fontSize: "clamp(12px, 1.4vw, 14px)",
+            alignSelf: "center",
+          }}
+        >
+          Génération locale en cours…
+        </div>
+      ) : null}
+      {helperText ? (
+        <div
+          style={{
+            color: palette.muted,
+            fontSize: "clamp(12px, 1.4vw, 13px)",
+            flexBasis: "100%",
+            marginTop: 4,
+          }}
+        >
+          {helperText}
         </div>
       ) : null}
     </div>

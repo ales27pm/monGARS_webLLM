@@ -6,10 +6,10 @@ import { detectGpuMode } from "../services/GpuService";
 import type { GpuMode } from "../services/GpuService.types";
 
 const reasoningSteps = [
-  "Reformulation de la question utilisateur",
-  "Recherche d'indices dans la mémoire sémantique",
-  "Planification des appels outils (web / voix)",
-  "Synthèse et validation de la réponse",
+  "Reformulation claire de la demande",
+  "Scan de la mémoire locale pour les indices",
+  "Plan d'outils (web/voix) avant d'agir",
+  "Synthèse et contrôle qualité de la réponse",
 ];
 
 type Props = { navigation: { navigate: (screen: string) => void } };
@@ -77,9 +77,12 @@ const ReasoningScreen: React.FC<Props> = () => {
         color: palette.text,
       }}
     >
-      <div style={{ fontSize: 24, fontWeight: 800 }}>Visualisation du raisonnement</div>
+      <div style={{ fontSize: 24, fontWeight: 800 }}>
+        Traçage du cerveau monGARS
+      </div>
       <div style={{ color: palette.muted, textAlign: "center", maxWidth: 600 }}>
-        Suis le flux de pensée de l'agent, utile pour déboguer ou expliquer les décisions.
+        Suis le flux de pensée de l'agent : parfait pour deboguer ou justifier
+        ses moves.
       </div>
       <ReasoningVisualizer
         reasoning={reasoningTrace}
@@ -106,7 +109,9 @@ const ReasoningScreen: React.FC<Props> = () => {
               marginBottom: 10,
             }}
           >
-            <div style={{ fontWeight: 700, color: palette.error }}>GPU non disponible</div>
+            <div style={{ fontWeight: 700, color: palette.error }}>
+              GPU non disponible
+            </div>
             <div style={{ color: palette.muted, marginTop: 4 }}>{gpuError}</div>
             <button
               type="button"
@@ -126,7 +131,9 @@ const ReasoningScreen: React.FC<Props> = () => {
           </div>
         ) : null}
         {gpuLoading ? (
-          <div style={{ color: palette.muted, marginBottom: 8 }}>Détection GPU en cours…</div>
+          <div style={{ color: palette.muted, marginBottom: 8 }}>
+            Détection GPU en cours…
+          </div>
         ) : null}
         {reasoningTrace && (reasoningTrace.summary ?? "").trim().length > 0 ? (
           <div style={{ marginBottom: 10 }}>
@@ -139,13 +146,18 @@ const ReasoningScreen: React.FC<Props> = () => {
           <div style={{ color: palette.muted, marginBottom: 8 }}>
             {reasoningTrace
               ? "Résumé indisponible pour cette trace."
-              : "Aucune trace disponible pour l'instant. Envoie un message pour générer un nouveau raisonnement."}
+              : "Pas encore de trace. Ping l'agent pour lancer un nouveau raisonnement."}
           </div>
         )}
         {reasoningSteps.map((step, index) => (
           <div
             key={step}
-            style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 6,
+            }}
           >
             <div
               style={{

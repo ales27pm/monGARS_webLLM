@@ -8,6 +8,7 @@ export interface Message {
   role: Role;
   content: string | null;
   timestamp: number;
+  error?: boolean;
   tokens?: number;
   sources?: ToolSource[];
 }
