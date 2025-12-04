@@ -72,8 +72,9 @@ export class SpeechService {
       this.playbackSource?.stop();
     } catch (err) {
       console.warn("stopPlayback failed", err);
+    } finally {
+      this.playbackSource = null;
     }
-    this.playbackSource = null;
   }
 
   private cleanupRecorder(): void {
