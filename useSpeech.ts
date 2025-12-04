@@ -58,9 +58,11 @@ export function useSpeech(options: UseSpeechOptions = {}) {
   );
 
   const isChromeOnIos = useMemo(() => {
-    if (typeof navigator === "undefined") return false;
-    return /CriOS/i.test(navigator.userAgent);
-  }, []);
+    if (!windowRef) return false;
+    const nav = windowRef.navigator;
+    if (!nav || !nav.userAgent) return false;
+    return /CriOS/i.test(nav.userAgent);
+  }, [windowRef]);
 
   const voiceSupportError = useMemo(() => {
     if (!windowRef) {
