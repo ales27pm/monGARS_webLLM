@@ -41,8 +41,10 @@ class NativeBackend implements MonGarsEngine {
     const systemContent = normalizedMessages.find((msg) => msg.role === "system")?.content ?? "";
     const nonSystem = normalizedMessages.filter((msg) => msg.role !== "system");
 
-    const lastNonSystem = nonSystem[nonSystem.length - 1];
-    const historyWithoutLast = nonSystem.slice(0, -1);
+    // Fallback: if no non-system messages, use the last message (even if system) as content
+    const hasNonSystem = nonSystem.length > 0;
+    const lastNonSystem = hasNonSystem ? nonSystem[nonSystem.length - 1] : normalizedMessages[normalizedMessages.length - 1];
+    const historyWithoutLast = hasNonSystem ? nonSystem.slice(0, -1) : [];
 
     const recentHistory = historyWithoutLast
       .slice(-3)
