@@ -67,7 +67,17 @@ export class SpeechService {
   private stopPlayback(): void {
     if (this.playbackSource) {
       try {
-        this.playbackSource.stop();
+        // Only stop if the node has not already finished
+        this.playbackSource.onended = null;
+        this.playbackSource.disconnect();
+        // Some browsers throw if stop() is called after ended; wrap defensively
+        if (typeof (this.playbackSource as any).stop === "function") {
+          try {
+            this.playbackSource.stop(0);
+          } catch {
+            // Ignore InvalidStateError when already stopped
+          }
+        }
       } catch (err) {
         console.warn("Failed to stop playback", err);
       }
