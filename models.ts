@@ -30,7 +30,7 @@ export const MODEL_REGISTRY: Record<string, ModelMetadata> = {
     shortLabel: "Llama-3 1B",
     wasmFilename: "Llama-3.2-1B-Instruct-q4f32_1-ctx4k_cs1k-webgpu.wasm",
     description:
-      "Small Llama-3 encoder-decoder distilled to 1 B parameters, quantisé q4f32_1 pour les GPU mobiles.",
+      "Small Llama-3 decoder-only model with 1 B parameters, quantisé q4f32_1 pour les GPU mobiles.",
   },
 
   // Old q4f16_1 variant kept as an alternative
