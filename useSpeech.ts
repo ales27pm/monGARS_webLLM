@@ -57,6 +57,33 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     [windowRef],
   );
 
+  const isChromeOnIos = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /CriOS/i.test(navigator.userAgent);
+  }, []);
+
+  const voiceSupportError = useMemo(() => {
+    if (!windowRef) {
+      return "La dictée vocale requiert un navigateur moderne.";
+    }
+
+    if (!windowRef.isSecureContext) {
+      return "Active HTTPS pour utiliser la dictée vocale (obligatoire pour l'accès au micro).";
+    }
+
+    if (isChromeOnIos) {
+      return "Chrome sur iOS ne supporte pas la dictée vocale. Utilise Safari ou un navigateur compatible.";
+    }
+
+    if (!hasNativeRecognition) {
+      return "La dictée vocale n'est pas supportée par ce navigateur.";
+    }
+
+    return null;
+  }, [hasNativeRecognition, isChromeOnIos, windowRef]);
+
+  const isVoiceSupported = !voiceSupportError;
+
   const hasNativeTts = useMemo(() => supportsNativeTts(windowRef), [windowRef]);
 
   const getAudioContext = useCallback(() => {
@@ -210,17 +237,18 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       return;
     }
 
-    if (!hasNativeRecognition) {
-      setError("La dictée vocale n'est pas supportée par ce navigateur.");
+    if (!isVoiceSupported) {
+      setError(voiceSupportError);
       return;
     }
 
     await startNativeRecognition();
   }, [
-    hasNativeRecognition,
+    isVoiceSupported,
     isRecording,
     isTranscribing,
     startNativeRecognition,
+    voiceSupportError,
   ]);
 
   const stopRecording = useCallback(() => {
@@ -336,6 +364,8 @@ export function useSpeech(options: UseSpeechOptions = {}) {
     isSpeaking,
     lastTranscript,
     error,
+    isVoiceSupported,
+    voiceSupportError,
     vocalModeEnabled,
     setVocalModeEnabled,
     turnState,

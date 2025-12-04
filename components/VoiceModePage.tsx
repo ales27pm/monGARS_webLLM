@@ -36,6 +36,7 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
     isSpeaking,
     lastTranscript,
     error,
+    voiceSupportError,
     vocalModeEnabled,
     setVocalModeEnabled,
     turnState,
@@ -125,9 +126,9 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
             />
             <button
               onClick={isRecording ? stopRecording : startRecording}
-              disabled={engineStatus !== "ready"}
+              disabled={engineStatus !== "ready" || !!voiceSupportError}
               className={`relative w-28 h-28 rounded-full flex items-center justify-center text-3xl font-semibold shadow-lg transition-all duration-300 ${
-                engineStatus !== "ready"
+                engineStatus !== "ready" || voiceSupportError
                   ? "bg-slate-500/60 text-white/60 cursor-not-allowed"
                   : listeningActive
                     ? "bg-error text-white scale-105"
@@ -136,6 +137,8 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
               title={
                 engineStatus !== "ready"
                   ? "Démarre le moteur pour activer la voix"
+                  : voiceSupportError
+                    ? voiceSupportError
                   : listeningActive
                     ? "Arrêter l'écoute"
                     : "Commencer l'écoute"
@@ -193,7 +196,14 @@ export const VoiceModePage: React.FC<VoiceModePageProps> = ({
                 </span>
               </p>
             )}
-            {error && <p className="text-error text-sm font-medium">{error}</p>}
+            {voiceSupportError && (
+              <p className="text-amber-200 text-sm font-medium">
+                {voiceSupportError}
+              </p>
+            )}
+            {!voiceSupportError && error && (
+              <p className="text-error text-sm font-medium">{error}</p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
