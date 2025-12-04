@@ -14,9 +14,9 @@ export interface StatusBannerProps {
 
 const toneMap: Record<StatusTone, string> = {
   info: palette.accent,
-  warning: "#f6c344",
+  warning: palette.warning,
   error: palette.error,
-  success: palette.success ?? palette.accent,
+  success: palette.success,
 };
 
 const StatusBanner: React.FC<StatusBannerProps> = ({
