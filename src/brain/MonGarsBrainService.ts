@@ -65,9 +65,11 @@ const DEFAULT_TRACE_CONFIG: Config = {
  * MonGarsBrainService is a framework-agnostic orchestrator that owns
  * the conversation state and delegates text generation to WebLLM.
  *
- * For now it focuses on robust, deterministic chat completion. It is
- * designed so that semantic memory, rich reasoning traces and speech
- * orchestration can be plugged in without changing the public API.
+ * It handles:
+ * - Chat history
+ * - Semantic memory (Embeddings)
+ * - Speech I/O
+ * - Reasoning trace via decisionEngine
  */
 class MonGarsBrainService {
   private messages: Message[] = [];
@@ -76,15 +78,17 @@ class MonGarsBrainService {
   private semanticMemory: EmbeddingMemory | null = null;
   private semanticMemoryWarmup: Promise<void> | null = null;
 
-  // Stubs for future richer features – kept fully defined and stable.
+  // Stubs for richer features – kept fully defined and stable.
   private reasoningTrace: ReasoningTrace | null = null;
   private memoryStats: MemoryStats = {
     totalEntries: 0,
     lastHitScore: null,
   };
-  private speechService: SpeechService;
 
+  private speechService: SpeechService;
   private pendingTranscripts: string[] = [];
+
+  private listeners: Set<Listener> = new Set();
 
   constructor() {
     this.speechService = new SpeechService({
@@ -92,10 +96,11 @@ class MonGarsBrainService {
       onTranscription: (transcript) => {
         if (this.isBusy) {
           this.pendingTranscripts.push(transcript);
-          const notice = {
+          const notice: Message = {
             id: nextId(),
-            role: "assistant" as const,
-            content: "Déjà en cours de réponse. Je traiterai ta demande ensuite.",
+            role: "assistant",
+            content:
+              "Déjà en cours de réponse. Je traiterai ta demande ensuite.",
             timestamp: Date.now(),
             error: true,
           };
@@ -108,6 +113,10 @@ class MonGarsBrainService {
     });
   }
 
+  /**
+   * Main entry point: push a user message, enrich with semantic memory,
+   * build a clean system+history payload, and ask WebLLM for a reply.
+   */
   async sendUserMessage(text: string): Promise<void> {
     const trimmed = sanitizeUserInput(text);
     if (!trimmed) {
@@ -124,6 +133,7 @@ class MonGarsBrainService {
         error: true,
       };
       this.messages = [...this.messages, errorMessage];
+      this.broadcast();
       return; // Do not proceed when busy
     }
 
@@ -138,7 +148,8 @@ class MonGarsBrainService {
     this.broadcast();
 
     try {
-      const history: ChatMessage[] = this.messages
+      // Base history: only user & assistant messages, no errors, no systems.
+      const baseHistory: ChatMessage[] = this.messages
         .filter(
           (m) => (m.role === "user" || m.role === "assistant") && !m.error,
         )
@@ -147,14 +158,50 @@ class MonGarsBrainService {
           content: message.content,
         }));
 
-      const { history: augmentedHistory } =
-        await this.enrichHistoryWithSemanticMemory(history, userMessage);
+      const {
+        history,
+        bestScore,
+        contextSummary,
+      } = await this.enrichHistoryWithSemanticMemory(baseHistory, userMessage);
 
-      const completion = await webLLMService.completeChat(augmentedHistory, {
-        temperature: 0.7,
-        maxTokens: 256,
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
-      });
+      // Build the final messages array:
+      // 1. System prompt (always first)
+      // 2. Optional semantic memory context (also system)
+      // 3. All normal chat messages (user/assistant only)
+      const systemMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content: DEFAULT_SYSTEM_PROMPT,
+        },
+      ];
+
+      if (contextSummary.trim().length > 0) {
+        systemMessages.push({
+          role: "system",
+          content: `Mémoire sémantique pertinente :\n${contextSummary}`,
+        });
+      }
+
+      const messagesForCompletion: ChatMessage[] = [
+        ...systemMessages,
+        ...history,
+      ];
+
+      // Update memory stats with the last hit score we computed
+      this.memoryStats = {
+        ...this.memoryStats,
+        lastHitScore: bestScore,
+      };
+
+      const completion = await webLLMService.completeChat(
+        messagesForCompletion,
+        {
+          temperature: 0.7,
+          maxTokens: 256,
+          // IMPORTANT: We do NOT pass systemPrompt here anymore.
+          // All system messages are already present at the beginning of `messages`.
+        },
+      );
 
       if (completion.stream) {
         const assistantMessage: Message = {
@@ -243,8 +290,6 @@ class MonGarsBrainService {
     };
   }
 
-  private listeners: Set<Listener> = new Set();
-
   /**
    * Subscribe to snapshot updates. Returns an unsubscribe function.
    */
@@ -308,17 +353,29 @@ class MonGarsBrainService {
     if (!this.semanticMemoryWarmup) {
       this.semanticMemoryWarmup = memory
         .warmup()
-        .catch((error) => console.warn("Semantic memory warmup failed", error));
+        .catch((error) =>
+          console.warn("Semantic memory warmup failed", error),
+        );
     }
 
     await this.semanticMemoryWarmup;
     return memory;
   }
 
+  /**
+   * Prepare semantic memory:
+   * - add the current user message
+   * - search for neighbors
+   * - return the history (unchanged), the best score and a summarized context
+   */
   private async enrichHistoryWithSemanticMemory(
     history: ChatMessage[],
     userMessage: Message,
-  ): Promise<{ history: ChatMessage[]; bestScore: number | null }> {
+  ): Promise<{
+    history: ChatMessage[];
+    bestScore: number | null;
+    contextSummary: string;
+  }> {
     try {
       const memory = await this.ensureSemanticMemoryReady();
 
@@ -327,31 +384,22 @@ class MonGarsBrainService {
       const bestScore = results.length > 0 ? results[0].score : null;
       const contextSummary = memory.formatSummaries(results);
 
-      const augmentedHistory =
-        contextSummary.trim().length > 0 && history.length > 0
-          ? [
-              ...history.slice(0, -1),
-              {
-                role: "system",
-                content: `Mémoire sémantique pertinente :\n${contextSummary}`,
-              },
-              history[history.length - 1],
-            ]
-          : history;
-
       this.memoryStats = {
         totalEntries: memory.getEntryCount(),
         lastHitScore: bestScore,
       };
 
-      return { history: augmentedHistory, bestScore };
+      return { history, bestScore, contextSummary };
     } catch (error) {
-      console.warn("Impossible d'enrichir l'historique avec la mémoire", error);
+      console.warn(
+        "Impossible d'enrichir l'historique avec la mémoire",
+        error,
+      );
       this.memoryStats = {
         totalEntries: this.semanticMemory?.getEntryCount() ?? 0,
         lastHitScore: null,
       };
-      return { history, bestScore: null };
+      return { history, bestScore: null, contextSummary: "" };
     }
   }
 
