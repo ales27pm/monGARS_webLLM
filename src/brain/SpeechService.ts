@@ -209,17 +209,24 @@ export class SpeechService {
       return;
     }
 
+    if (typeof MediaRecorder === "undefined") {
+      this.setSpeechState({
+        lastError: "La capture audio n'est pas supportée par ce navigateur.",
+      });
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.recordingStream = stream;
 
       let options: MediaRecorderOptions | undefined;
-      if (typeof MediaRecorder !== "undefined") {
-        if (MediaRecorder.isTypeSupported("audio/webm")) {
-          options = { mimeType: "audio/webm" };
-        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
-          options = { mimeType: "audio/ogg" };
-        }
+      if (MediaRecorder.isTypeSupported("audio/webm")) {
+        options = { mimeType: "audio/webm" };
+      } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+        options = { mimeType: "audio/ogg" };
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        options = { mimeType: "audio/mp4" };
       }
 
       const recorder = new MediaRecorder(stream, options);

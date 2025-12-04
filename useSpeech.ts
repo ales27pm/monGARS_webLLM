@@ -165,6 +165,11 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       return;
     }
 
+    if (typeof MediaRecorder === "undefined") {
+      setError("La capture audio n'est pas supportée par ce navigateur.");
+      return;
+    }
+
     try {
       setError(null);
       stopStreamTracks(streamRef.current);
@@ -173,10 +178,13 @@ export function useSpeech(options: UseSpeechOptions = {}) {
       });
       const stream = streamRef.current;
       const options: MediaRecorderOptions | undefined =
-        typeof MediaRecorder !== "undefined" &&
         MediaRecorder.isTypeSupported("audio/webm")
           ? { mimeType: "audio/webm" }
-          : undefined;
+          : MediaRecorder.isTypeSupported("audio/ogg")
+            ? { mimeType: "audio/ogg" }
+            : MediaRecorder.isTypeSupported("audio/mp4")
+              ? { mimeType: "audio/mp4" }
+              : undefined;
       const recorder = new MediaRecorder(stream, options);
       chunksRef.current = [];
 
