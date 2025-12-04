@@ -64,17 +64,26 @@ export class SpeechService {
     return this.audioContext;
   }
 
+  // Remove the earlier transcribeBlob definition entirely and keep a single, robust implementation:
   private async transcribeBlob(blob: Blob): Promise<string> {
     const asr = await ensurePipeline(
       "automatic-speech-recognition",
       "Xenova/whisper-small",
     );
 
-    const audioContext = await this.ensureAudioContext();
-    const { audioData, sampleRate } = await blobToFloat32AudioData(
-      blob,
-      audioContext,
-    );
+    let audioData: Float32Array;
+    let sampleRate: number;
+    try {
+      const { audioData: data, sampleRate: rate } = await blobToFloat32AudioData(
+        blob,
+        await this.ensureAudioContext(),
+      );
+      audioData = data;
+      sampleRate = rate;
+    } catch (e) {
+      console.error("Audio decoding failed", e);
+      return "";
+    }
 
     const result = await asr(
       { array: audioData, sampling_rate: sampleRate },
