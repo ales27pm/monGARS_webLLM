@@ -94,8 +94,11 @@ class MonGarsBrainService {
     this.speechService = new SpeechService({
       onStateChange: () => this.broadcast(),
       onTranscription: (transcript) => {
+        const text = sanitizeUserInput(transcript);
+        if (!text) return;
+
         if (this.isBusy) {
-          this.pendingTranscripts.push(transcript);
+          this.pendingTranscripts.push(text);
           const notice: Message = {
             id: nextId(),
             role: "assistant",
@@ -108,7 +111,7 @@ class MonGarsBrainService {
           this.broadcast();
           return;
         }
-        return this.sendUserMessage(transcript);
+        void this.sendUserMessage(text);
       },
     });
   }
@@ -164,26 +167,20 @@ class MonGarsBrainService {
         contextSummary,
       } = await this.enrichHistoryWithSemanticMemory(baseHistory, userMessage);
 
-      // Build the final messages array:
-      // 1. System prompt (always first)
-      // 2. Optional semantic memory context (also system)
-      // 3. All normal chat messages (user/assistant only)
-      const systemMessages: ChatMessage[] = [
-        {
-          role: "system",
-          content: DEFAULT_SYSTEM_PROMPT,
-        },
-      ];
-
+      // Build a SINGLE system message that includes optional semantic context.
+      const sysParts: string[] = [DEFAULT_SYSTEM_PROMPT];
       if (contextSummary.trim().length > 0) {
-        systemMessages.push({
-          role: "system",
-          content: `Mémoire sémantique pertinente :\n${contextSummary}`,
-        });
+        sysParts.push(
+          "\n\nMémoire sémantique pertinente (ne pas répéter telle quelle) :\n" +
+            contextSummary,
+        );
       }
 
       const messagesForCompletion: ChatMessage[] = [
-        ...systemMessages,
+        {
+          role: "system",
+          content: sysParts.join(""),
+        },
         ...history,
       ];
 
@@ -199,7 +196,7 @@ class MonGarsBrainService {
           temperature: 0.7,
           maxTokens: 256,
           // IMPORTANT: We do NOT pass systemPrompt here anymore.
-          // All system messages are already present at the beginning of `messages`.
+          // All system content is already present as the first message.
         },
       );
 
@@ -327,6 +324,7 @@ class MonGarsBrainService {
     };
     this.semanticMemory?.clear();
     this.semanticMemoryWarmup = null;
+    this.pendingTranscripts = [];
     this.broadcast();
   }
 
