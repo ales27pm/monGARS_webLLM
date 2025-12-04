@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
   // files like `.env` and `.env.local` in the project root.
   const env = loadEnv(mode, '.', '');
   return {
+    // Host the app from the domain root when deployed to GitHub Pages.
+    base: '/',
     // Register plugins. The order matters: React first, SSL second.
     plugins: [
       react(),
