@@ -37,15 +37,23 @@ class NativeBackend implements MonGarsEngine {
     options: CompletionOptions,
   ): Promise<CompletionResult> {
     const generator = await this.loadGenerator();
-    const recentHistory = messages
-      .filter((msg) => msg.content)
+    const normalizedMessages = messages.filter((msg) => msg.content !== null);
+    const systemContent = normalizedMessages.find((msg) => msg.role === "system")?.content ?? "";
+    const nonSystem = normalizedMessages.filter((msg) => msg.role !== "system");
+
+    // Fallback: if no non-system messages, use the last message (even if system) as content
+    const hasNonSystem = nonSystem.length > 0;
+    const lastNonSystem = hasNonSystem ? nonSystem[nonSystem.length - 1] : normalizedMessages[normalizedMessages.length - 1];
+    const historyWithoutLast = hasNonSystem ? nonSystem.slice(0, -1) : [];
+
+    const recentHistory = historyWithoutLast
       .slice(-3)
       .map((m) => `${m.role}: ${m.content}`)
       .join(" | ");
 
-    const prompt = `${options.systemPrompt ?? ""}\n\n${recentHistory}\n\n${
-      messages[messages.length - 1]?.content ?? ""
-    }`;
+    const lastNonSystemContent = lastNonSystem?.content ?? "";
+
+    const prompt = `${systemContent}\n\n${recentHistory}\n\n${lastNonSystemContent}`.trim();
 
     const output = await generator(prompt, {
       max_new_tokens: options.maxTokens,

@@ -57,45 +57,13 @@ class WebBackend implements MonGarsEngine {
    * - At most one `system` message.
    * - If present, it is always the very first element.
    */
-  private buildMessages(
-    messages: ChatMessage[],
-    systemPrompt?: string,
-  ): ChatCompletionMessageParam[] {
-    const normalized = messages
+  private buildMessages(messages: ChatMessage[]): ChatCompletionMessageParam[] {
+    return messages
       .filter((msg) => msg.content !== null)
       .map((message) => ({
         role: message.role as ChatCompletionMessageParam["role"],
         content: (message.content ?? "").toString(),
       }));
-
-    let systemMsg: ChatCompletionMessageParam | null = null;
-    const nonSystem: ChatCompletionMessageParam[] = [];
-
-    for (const msg of normalized) {
-      if (msg.role === "system") {
-        if (!systemMsg) {
-          systemMsg = { role: "system", content: msg.content };
-        } else {
-          systemMsg.content += "\n\n" + msg.content;
-        }
-      } else {
-        nonSystem.push(msg);
-      }
-    }
-
-    if (systemPrompt) {
-      if (systemMsg) {
-        systemMsg.content = systemPrompt;
-      } else {
-        systemMsg = { role: "system", content: systemPrompt };
-      }
-    }
-
-    if (!systemMsg) {
-      return nonSystem;
-    }
-
-    return [systemMsg, ...nonSystem];
   }
 
   async completeChat(
@@ -105,7 +73,7 @@ class WebBackend implements MonGarsEngine {
     const engine = await this.ensureEngine();
 
     const payload: ChatCompletionPayload = {
-      messages: this.buildMessages(messages, options.systemPrompt),
+      messages: this.buildMessages(messages),
       stream: options.stream ?? false,
       temperature: options.temperature,
       max_tokens: options.maxTokens,

@@ -52,9 +52,13 @@ describe('WebLLMService.web', () => {
     await webLLMService.reset();
   });
 
-  it('builds a payload with system prompt and forwards options', async () => {
+  it('forwards messages as-is and options without injecting system prompts', async () => {
     const response = await webLLMService.completeChat(
       [
+        {
+          role: 'system',
+          content: 'SYS_PROMPT',
+        },
         {
           role: 'user',
           content: 'Salut !',
@@ -63,7 +67,6 @@ describe('WebLLMService.web', () => {
       {
         temperature: 0.5,
         maxTokens: 128,
-        systemPrompt: 'SYS_PROMPT',
       },
     );
 
