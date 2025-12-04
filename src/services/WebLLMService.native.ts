@@ -53,8 +53,6 @@ class NativeBackend implements MonGarsEngine {
 
     const prompt = `${systemContent}\n\n${recentHistory}\n\n${lastNonSystemContent}`.trim();
 
-    const prompt = `${systemContent ?? ""}\n\n${recentHistory}\n\n${lastNonSystemContent}`;
-
     const output = await generator(prompt, {
       max_new_tokens: options.maxTokens,
       temperature: options.temperature,
