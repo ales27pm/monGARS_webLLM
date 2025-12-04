@@ -37,7 +37,7 @@ const VoiceModeScreen: React.FC<Props> = () => {
     try {
       if (listening) {
         stopSpeechCapture();
-      } else {
+      } else if (!speaking && !isGenerating) {
         await startSpeechCapture();
       }
     } catch (error) {
