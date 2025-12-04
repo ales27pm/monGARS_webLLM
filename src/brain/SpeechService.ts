@@ -133,6 +133,7 @@ export class SpeechService {
 
   private async handleTranscription(blob: Blob): Promise<void> {
     if (blob.size === 0) {
+      this.cleanupRecorder();
       this.setSpeechState({
         lastError: "Aucun audio n'a été capturé.",
         isRecording: false,

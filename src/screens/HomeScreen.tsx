@@ -1,29 +1,16 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useMemo } from "react";
 import ChatTimeline from "../components/chat/ChatTimeline";
 import ChatComposer from "../components/chat/ChatComposer";
 import GpuStatusCard from "../components/GpuStatusCard";
 import ChatSkeleton from "../components/ChatSkeleton";
 import StatusBanner from "../components/StatusBanner";
-import { webLLMService } from "../services/WebLLMService";
-import type { InitProgressReport } from "../../types";
+import { useEngine } from "../hooks/useEngine";
+import type { EngineUiState } from "../hooks/useEngine";
 import { palette } from "../theme";
 
 type HomeScreenProps = {
   navigation: { navigate: (screen: string) => void };
 };
-
-type EngineUiState =
-  | "idle"
-  | "initializing"
-  | "downloading"
-  | "ready"
-  | "error";
 
 const cardStyle: React.CSSProperties = {
   background: palette.surface,
@@ -33,58 +20,8 @@ const cardStyle: React.CSSProperties = {
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const [engineState, setEngineState] = useState<EngineUiState>("idle");
-  const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState<string>("Arme le moteur local.");
-  const [errorText, setErrorText] = useState<string | null>(null);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const handleProgress = useCallback((report: InitProgressReport) => {
-    if (!isMountedRef.current) return;
-    const pct = Math.round((report.progress ?? 0) * 100);
-    setProgress(pct);
-    setStatusText(report.text || "Initialisation en cours…");
-    if (pct < 100) {
-      setEngineState("downloading");
-    }
-  }, []);
-
-  const bootEngine = useCallback(async () => {
-    if (!isMountedRef.current) return;
-
-    setErrorText(null);
-    setEngineState("initializing");
-    setStatusText("Préparation du moteur WebGPU local…");
-    setProgress(0);
-
-    try {
-      await webLLMService.init({ onProgress: handleProgress });
-      if (!isMountedRef.current) return;
-
-      setEngineState("ready");
-      setStatusText("Moteur local prêt. Tu peux envoyer.");
-      setProgress(100);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-
-      const message = err instanceof Error ? err.message : String(err);
-      setErrorText(
-        message ||
-          "Initialisation impossible : WebGPU ou stockage semble indisponible.",
-      );
-      setEngineState("error");
-    }
-  }, [handleProgress]);
-
-  useEffect(() => {
-    void bootEngine();
-  }, [bootEngine]);
+  const { bootEngine, engineState, errorText, progress, statusText } =
+    useEngine();
 
   const banner = useMemo(() => {
     if (engineState === "ready") return null;
