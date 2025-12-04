@@ -6,7 +6,7 @@ export type ModelMetadata = {
   shortLabel?: string;
 };
 
-export const MODEL_LIBRARY_VERSION = "v0_2_79";
+export const MODEL_LIBRARY_VERSION = "v0_2_83";
 
 export const MODEL_LIBRARY_BASE_URL = `https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/${MODEL_LIBRARY_VERSION}/`;
 
