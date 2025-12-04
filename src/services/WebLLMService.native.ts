@@ -38,8 +38,10 @@ class NativeBackend implements MonGarsEngine {
   ): Promise<CompletionResult> {
     const generator = await this.loadGenerator();
     const normalizedMessages = messages.filter((msg) => msg.content !== null);
-    const systemContent = normalizedMessages.find((msg) => msg.role === "system")
-      ?.content;
+    const systemContent = normalizedMessages
+      .filter((msg) => msg.role === "system" && typeof msg.content === "string")
+      .map((m) => m.content as string)
+      .join("\n\n") || undefined;
     const nonSystem = normalizedMessages.filter((msg) => msg.role !== "system");
     const recentHistory = nonSystem
       .slice(-3)
