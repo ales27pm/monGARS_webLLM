@@ -42,6 +42,7 @@ const baseStyle: React.CSSProperties = {
   minWidth: 220,
   flex: "1 1 240px",
   maxWidth: 420,
+  color: palette.text,
 };
 
 const GpuStatusCard: React.FC<GpuStatusCardProps> = ({
@@ -54,28 +55,42 @@ const GpuStatusCard: React.FC<GpuStatusCardProps> = ({
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const runDetection = useCallback(async () => {
-    if (mode) return;
-    setChecking(true);
-    setError(null);
-    try {
-      const backend = await detectGpuMode();
-      setDetectedMode(backend);
-      onDetected?.(backend);
-    } catch (err) {
-      console.error("GPU detection failed", err);
-      setError(
-        "Impossible de détecter l'accélération matérielle. On repasse en mode CPU sécurisé.",
-      );
-      setDetectedMode("none");
-    } finally {
-      setChecking(false);
-    }
-  }, [mode, onDetected]);
+  const runDetection = useCallback(
+    async (signal?: AbortSignal) => {
+      if (mode) return;
+      if (signal?.aborted) return;
+      setChecking(true);
+      setError(null);
+      try {
+        const backend = await detectGpuMode();
+        if (signal?.aborted) return;
+        setDetectedMode(backend);
+        onDetected?.(backend);
+      } catch (err) {
+        console.error("GPU detection failed", err);
+        if (signal?.aborted) return;
+        setError(
+          "Impossible de détecter l'accélération matérielle. On repasse en mode CPU sécurisé.",
+        );
+        setDetectedMode("none");
+      } finally {
+        if (signal?.aborted) return;
+        setChecking(false);
+      }
+    },
+    [mode, onDetected],
+  );
 
   useEffect(() => {
-    runDetection();
-  }, [runDetection]);
+    if (mode) return undefined;
+
+    const controller = new AbortController();
+    runDetection(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [mode, runDetection]);
 
   const resolvedMode = mode ?? detectedMode;
 
@@ -92,10 +107,7 @@ const GpuStatusCard: React.FC<GpuStatusCardProps> = ({
   }, [checking, error, resolvedMode]);
 
   return (
-    <div
-      className={className}
-      style={{ ...baseStyle, ...style, color: palette.text }}
-    >
+    <div className={className} style={{ ...baseStyle, ...style }}>
       <div
         style={{
           color: error ? palette.error : tone[resolvedMode],

@@ -28,6 +28,7 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
   onAction,
 }) => {
   const showProgress = typeof progress === "number" && progress >= 0;
+  const progressValue = Math.min(100, Math.max(0, progress ?? 0));
   const toneColor = toneMap[tone];
 
   return (
@@ -63,7 +64,11 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
       ) : null}
       {showProgress ? (
         <div
-          aria-label="progress"
+          role="progressbar"
+          aria-valuenow={progressValue}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Progression du chargement"
           style={{
             width: "100%",
             height: 6,
@@ -74,7 +79,7 @@ const StatusBanner: React.FC<StatusBannerProps> = ({
         >
           <div
             style={{
-              width: `${Math.min(100, Math.max(0, progress ?? 0))}%`,
+              width: `${progressValue}%`,
               height: "100%",
               background: toneColor,
               transition: "width 180ms ease",

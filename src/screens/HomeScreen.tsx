@@ -49,13 +49,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       error: "Erreur",
     };
 
-    const descriptionMap: Record<EngineUiState, string> = {
-      idle: "On vérifie WebGPU / stockage avant de lancer le modèle.",
-      initializing: statusText,
-      downloading: `${statusText} (${progress}% )`,
-      ready: "",
-      error: "",
-    };
+      const descriptionMap: Record<EngineUiState, string> = {
+        idle: "On vérifie WebGPU / stockage avant de lancer le modèle.",
+        initializing: statusText,
+        downloading: `${statusText} (${progress}%)`,
+        ready: "",
+        error: "",
+      };
 
     return (
       <StatusBanner

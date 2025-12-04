@@ -81,7 +81,7 @@ const ReasoningScreen: React.FC<Props> = () => {
         Traçage du cerveau monGARS
       </div>
       <div style={{ color: palette.muted, textAlign: "center", maxWidth: 600 }}>
-        Suis le flux de pensée de l'agent : parfait pour deboguer ou justifier
+        Suis le flux de pensée de l'agent : parfait pour déboguer ou justifier
         ses moves.
       </div>
       <ReasoningVisualizer

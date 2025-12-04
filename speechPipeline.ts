@@ -22,21 +22,24 @@ export async function ensurePipeline(
   let cached = pipelineCache.get(key);
 
   if (!cached) {
-    const { pipeline } = await loadTransformers();
-    const device =
-      typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
-    const pipelinePromise = pipeline(type as any, model, {
-      quantized: true,
-      device,
-      progress_callback: (status) => {
-        console.info(`[speech] ${type} loading`, status);
-      },
-      ...(options || {}),
-    }).catch((err) => {
-      pipelineCache.delete(key);
-      throw err;
-    });
-    cached = pipelinePromise;
+    cached = loadTransformers()
+      .then(async ({ pipeline }) => {
+        const device =
+          typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
+        return pipeline(type as any, model, {
+          quantized: true,
+          device,
+          progress_callback: (status) => {
+            console.info(`[speech] ${type} loading`, status);
+          },
+          ...(options || {}),
+        });
+      })
+      .catch((err) => {
+        pipelineCache.delete(key);
+        throw err;
+      });
+
     pipelineCache.set(key, cached);
   }
 
