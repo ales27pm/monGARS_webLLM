@@ -52,28 +52,50 @@ class WebBackend implements MonGarsEngine {
     return engine;
   }
 
+  /**
+   * Build a messages array compatible with MLC:
+   * - At most one `system` message.
+   * - If present, it is always the very first element.
+   */
   private buildMessages(
     messages: ChatMessage[],
     systemPrompt?: string,
   ): ChatCompletionMessageParam[] {
-    const normalizedHistory = messages
+    const normalized = messages
       .filter((msg) => msg.content !== null)
       .map((message) => ({
         role: message.role as ChatCompletionMessageParam["role"],
         content: (message.content ?? "").toString(),
       }));
 
-    let finalHistory = normalizedHistory;
-    if (systemPrompt) {
-      if (finalHistory.length > 0 && finalHistory[0].role === "system") {
-        // Replace existing system prompt if a new one is provided
-        finalHistory[0].content = systemPrompt;
+    let systemMsg: ChatCompletionMessageParam | null = null;
+    const nonSystem: ChatCompletionMessageParam[] = [];
+
+    for (const msg of normalized) {
+      if (msg.role === "system") {
+        if (!systemMsg) {
+          systemMsg = { role: "system", content: msg.content };
+        } else {
+          systemMsg.content += "\n\n" + msg.content;
+        }
       } else {
-        // Prepend system prompt if none exists
-        finalHistory.unshift({ role: "system", content: systemPrompt });
+        nonSystem.push(msg);
       }
     }
-    return finalHistory;
+
+    if (systemPrompt) {
+      if (systemMsg) {
+        systemMsg.content = systemPrompt;
+      } else {
+        systemMsg = { role: "system", content: systemPrompt };
+      }
+    }
+
+    if (!systemMsg) {
+      return nonSystem;
+    }
+
+    return [systemMsg, ...nonSystem];
   }
 
   async completeChat(
@@ -97,7 +119,9 @@ class WebBackend implements MonGarsEngine {
         (typeof (chunks as any)[Symbol.asyncIterator] === "function");
 
       if (!isAsyncIterable) {
-        throw new Error("Le moteur n'a pas renvoyé un flux async pour le mode streaming.");
+        throw new Error(
+          "Le moteur n'a pas renvoyé un flux async pour le mode streaming.",
+        );
       }
 
       const signal = options.signal;
@@ -108,7 +132,9 @@ class WebBackend implements MonGarsEngine {
           if (typeof (chunks as any)?.return === "function") {
             try {
               await (chunks as any).return();
-            } catch {}
+            } catch {
+              // ignore
+            }
           }
         };
 
