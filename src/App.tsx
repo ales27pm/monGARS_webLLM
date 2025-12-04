@@ -1,29 +1,39 @@
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import { ChatProvider } from "./context/ChatContext";
 import HomeScreen from "./screens/HomeScreen";
-import VoiceModeScreen from "./screens/VoiceModeScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import ReasoningScreen from "./screens/ReasoningScreen";
-import CapabilitiesScreen from "./screens/CapabilitiesScreen";
 import { palette } from "./theme";
 import "../index.css";
 import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
+import AppShell from "./layout/AppShell";
+import ResponsivePane from "./layout/ResponsivePane";
+import NavigationRail, {
+  ScreenKey,
+} from "./components/navigation/NavigationRail";
 
-type ScreenKey = "Home" | "Voice" | "Settings" | "Reasoning" | "Capabilities";
+const VoiceModeScreen = React.lazy(() => import("./screens/VoiceModeScreen"));
+const SettingsScreen = React.lazy(() => import("./screens/SettingsScreen"));
+const ReasoningScreen = React.lazy(() => import("./screens/ReasoningScreen"));
+const CapabilitiesScreen = React.lazy(
+  () => import("./screens/CapabilitiesScreen"),
+);
 
 type Navigation = {
   navigate: (screen: ScreenKey) => void;
 };
 
 const tabLabels: Record<ScreenKey, string> = {
-  Home: "Accueil",
-  Voice: "Voix",
-  Settings: "Réglages",
-  Reasoning: "Raisonnement",
-  Capabilities: "Capacités",
+  Home: "QG local",
+  Voice: "Voix / mains libres",
+  Settings: "Réglages monGARS",
+  Reasoning: "Traçage raisonnement",
+  Capabilities: "Capacités natives",
 };
 
-const AppShell: React.FC = () => {
+const navItems: { key: ScreenKey; label: string }[] = (
+  Object.keys(tabLabels) as ScreenKey[]
+).map((key) => ({ key, label: tabLabels[key] }));
+
+const AppNavigator: React.FC = () => {
   const [active, setActive] = useState<ScreenKey>("Home");
 
   const navigation: Navigation = useMemo(
@@ -36,13 +46,37 @@ const AppShell: React.FC = () => {
   const renderScreen = () => {
     switch (active) {
       case "Voice":
-        return <VoiceModeScreen navigation={navigation} />;
+        return (
+          <Suspense
+            fallback={<LazyScreenFallback label="Module voix" hint="Chargement du pipeline audio local…" />}
+          >
+            <VoiceModeScreen navigation={navigation} />
+          </Suspense>
+        );
       case "Settings":
-        return <SettingsScreen navigation={navigation} />;
+        return (
+          <Suspense
+            fallback={<LazyScreenFallback label="Réglages" hint="Chargement des panneaux avancés…" />}
+          >
+            <SettingsScreen navigation={navigation} />
+          </Suspense>
+        );
       case "Reasoning":
-        return <ReasoningScreen navigation={navigation} />;
+        return (
+          <Suspense
+            fallback={<LazyScreenFallback label="Traçage" hint="Chargement du module de reasoning…" />}
+          >
+            <ReasoningScreen navigation={navigation} />
+          </Suspense>
+        );
       case "Capabilities":
-        return <CapabilitiesScreen navigation={navigation} />;
+        return (
+          <Suspense
+            fallback={<LazyScreenFallback label="Capacités" hint="Chargement des capacités locales…" />}
+          >
+            <CapabilitiesScreen navigation={navigation} />
+          </Suspense>
+        );
       case "Home":
       default:
         return <HomeScreen navigation={navigation} />;
@@ -50,57 +84,112 @@ const AppShell: React.FC = () => {
   };
 
   return (
-    <div style={{ background: palette.background, color: palette.text, minHeight: "100vh" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 18px",
-          borderBottom: `1px solid ${palette.border}`,
-          background: palette.surface,
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18, fontWeight: 800 }}>Mon Gars</span>
-          <span style={{ color: palette.muted, fontSize: 13 }}>
-            UI multi-écran (web)
-          </span>
+    <AppShell
+      rail={
+        <NavigationRail
+          active={active}
+          items={navItems}
+          onNavigate={setActive}
+        />
+      }
+      bottomNav={
+        <NavigationRail
+          layout="bottom"
+          active={active}
+          items={navItems}
+          onNavigate={setActive}
+        />
+      }
+    >
+      <ResponsivePane variant="primary">
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+            borderRadius: 14,
+            padding: 12,
+            boxSizing: "border-box",
+          }}
+        >
+          <header
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span style={{ fontSize: 18, fontWeight: 800 }}>Mon Gars</span>
+              <span style={{ color: palette.muted, fontSize: 13 }}>
+                UI multi-écran (web)
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {navItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setActive(item.key)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    border: `1px solid ${
+                      active === item.key ? palette.accent : palette.border
+                    }`,
+                    background:
+                      active === item.key ? palette.elevated : "transparent",
+                    color: palette.text,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </header>
+          <main style={{ maxWidth: 1500, width: "100%" }}>
+            {renderScreen()}
+          </main>
         </div>
-        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {(Object.keys(tabLabels) as ScreenKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActive(key)}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: `1px solid ${active === key ? palette.accent : palette.border}`,
-                background: active === key ? palette.elevated : "transparent",
-                color: palette.text,
-                cursor: "pointer",
-                fontWeight: 700,
-              }}
-            >
-              {tabLabels[key]}
-            </button>
-          ))}
-        </nav>
-      </header>
-      <main style={{ maxWidth: 1200, margin: "0 auto", padding: 12 }}>{renderScreen()}</main>
-    </div>
+      </ResponsivePane>
+    </AppShell>
   );
 };
+
+const LazyScreenFallback: React.FC<{ label: string; hint?: string }> = ({
+  label,
+  hint,
+}) => (
+  <div
+    style={{
+      width: "100%",
+      minHeight: 220,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "column",
+      gap: 8,
+      color: palette.text,
+    }}
+  >
+    <div style={{ fontWeight: 800, fontSize: 18 }}>
+      {label}…
+    </div>
+    {hint ? <div style={{ color: palette.muted }}>{hint}</div> : null}
+  </div>
+);
 
 export default function App() {
   return (
     <GlobalErrorBoundary>
       <ChatProvider>
-        <AppShell />
+        <AppNavigator />
       </ChatProvider>
     </GlobalErrorBoundary>
   );

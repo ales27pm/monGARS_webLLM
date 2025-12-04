@@ -1,10 +1,17 @@
-import { pipeline, env } from "@xenova/transformers";
+type AudioPipeline = Awaited<ReturnType<typeof import("@xenova/transformers")["pipeline"]>>;
 
-type AudioPipeline = Awaited<ReturnType<typeof pipeline>>;
-
-env.allowLocalModels = true;
-
+let transformersImport: Promise<typeof import("@xenova/transformers")> | null = null;
 const pipelineCache = new Map<string, Promise<AudioPipeline>>();
+
+async function loadTransformers() {
+  if (!transformersImport) {
+    transformersImport = import("@xenova/transformers").then((mod) => {
+      mod.env.allowLocalModels = true;
+      return mod;
+    });
+  }
+  return transformersImport;
+}
 
 export async function ensurePipeline(
   type: string,
@@ -15,20 +22,24 @@ export async function ensurePipeline(
   let cached = pipelineCache.get(key);
 
   if (!cached) {
-    const device =
-      typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
-    const pipelinePromise = pipeline(type as any, model, {
-      quantized: true,
-      device,
-      progress_callback: (status) => {
-        console.info(`[speech] ${type} loading`, status);
-      },
-      ...(options || {}),
-    }).catch((err) => {
-      pipelineCache.delete(key);
-      throw err;
-    });
-    cached = pipelinePromise;
+    cached = loadTransformers()
+      .then(async ({ pipeline }) => {
+        const device =
+          typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "auto";
+        return pipeline(type as any, model, {
+          quantized: true,
+          device,
+          progress_callback: (status) => {
+            console.info(`[speech] ${type} loading`, status);
+          },
+          ...(options || {}),
+        });
+      })
+      .catch((err) => {
+        pipelineCache.delete(key);
+        throw err;
+      });
+
     pipelineCache.set(key, cached);
   }
 

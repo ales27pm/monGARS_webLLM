@@ -5,20 +5,24 @@ import { palette } from "../theme";
 const capabilities = [
   {
     title: "LLM local WebLLM",
-    description: "Génération de texte directement dans le navigateur via WebGPU avec fallback CPU.",
+    description:
+      "Texte généré directement sur ta machine via WebGPU, avec fallback CPU si besoin.",
     badge: "On-device",
   },
   {
     title: "Mémoire sémantique",
-    description: "Indexation locale des échanges pour retrouver le contexte pertinent (bientôt activé ici).",
+    description:
+      "Indexe les échanges en local pour rappeler le contexte sans lâcher de données (bientôt actif ici).",
   },
   {
     title: "Mode voix",
-    description: "Capture micro, transcription et réponses parlées avec effets visuels adaptatifs.",
+    description:
+      "Capture micro, transcription et réponses parlées avec effets visuels adaptatifs, toujours offline.",
   },
   {
     title: "Raisonnement traçable",
-    description: "Visualisation des étapes de décision pour expliquer les réponses et les appels outils.",
+    description:
+      "Visualise chaque étape de décision pour expliquer les réponses et les appels outils.",
   },
 ];
 
@@ -39,7 +43,7 @@ const CapabilitiesScreen: React.FC<Props> = () => (
     <div>
       <div style={{ fontSize: 24, fontWeight: 800 }}>Capacités</div>
       <div style={{ color: palette.muted }}>
-        Comprends ce que Mon Gars peut faire aujourd'hui, optimisé pour le navigateur.
+        Tout ce que monGARS sait faire en local, optimisé pour le navigateur.
       </div>
     </div>
     <div

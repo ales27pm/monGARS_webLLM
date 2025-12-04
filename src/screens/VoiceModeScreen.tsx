@@ -9,21 +9,17 @@ const VoiceModeScreen: React.FC<Props> = () => {
   const [pushToTalk, setPushToTalk] = useState(true);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [lastTranscript, setLastTranscript] = useState(
-    "Aucune requête capturée pour l'instant.",
+    "Pas encore de capture. Dis quelque chose et je reste en local.",
   );
-  const {
-    speechState,
-    startSpeechCapture,
-    stopSpeechCapture,
-    isGenerating,
-  } = useChatContext();
+  const { speechState, startSpeechCapture, stopSpeechCapture, isGenerating } =
+    useChatContext();
 
   const listening = speechState.mode === "listening" || speechState.isRecording;
   const speaking = speechState.mode === "speaking" || speechState.isPlaying;
   const speechError = speechState.lastError;
 
   const platformHint = useMemo(
-    () => "Utilise le micro navigateur avec fallback clavier.",
+    () => "Le micro tourne en local ; clavier dispo en backup.",
     [],
   );
 
@@ -46,8 +42,15 @@ const VoiceModeScreen: React.FC<Props> = () => {
   };
 
   return (
-    <div style={{ color: palette.text, display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 24, fontWeight: 800 }}>Mode voix</div>
+    <div
+      style={{
+        color: palette.text,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      <div style={{ fontSize: 24, fontWeight: 800 }}>Mode voix underground</div>
       <div style={{ color: palette.muted }}>{platformHint}</div>
       {speechError ? (
         <div
@@ -61,7 +64,9 @@ const VoiceModeScreen: React.FC<Props> = () => {
           <div style={{ color: palette.error, fontWeight: 700 }}>
             Micro indisponible
           </div>
-          <div style={{ color: palette.muted, marginTop: 4 }}>{speechError}</div>
+          <div style={{ color: palette.muted, marginTop: 4 }}>
+            {speechError}
+          </div>
           <div style={{ color: palette.muted, marginTop: 4, fontSize: 12 }}>
             Vérifie les permissions micro ou bascule en saisie texte.
           </div>
@@ -79,9 +84,16 @@ const VoiceModeScreen: React.FC<Props> = () => {
           maxWidth: 720,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
           <Toggle
-            label="Push-to-talk"
+            label="Push-to-talk (mode radio)"
             value={pushToTalk}
             onChange={setPushToTalk}
           />
@@ -127,7 +139,14 @@ const Toggle: React.FC<{
   value: boolean;
   onChange: (v: boolean) => void;
 }> = ({ label, value, onChange }) => (
-  <label style={{ display: "flex", alignItems: "center", gap: 8, color: palette.text }}>
+  <label
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      color: palette.text,
+    }}
+  >
     <input
       type="checkbox"
       checked={value}
