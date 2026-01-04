@@ -47,7 +47,9 @@ jobs:
         run: |
           echo "Using Vite base path: ${BASE_PATH}"
           npm run build -- --base="${BASE_PATH}"
-
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyl
+          
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
