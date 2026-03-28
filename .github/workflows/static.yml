@@ -34,12 +34,7 @@ jobs:
           cache: "npm"
 
       - name: Install deps
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm ci
 
       - name: Build (Vite)
         env:
@@ -48,8 +43,14 @@ jobs:
           echo "Using Vite base path: ${BASE_PATH}"
           npm run build -- --base="${BASE_PATH}"
           cp dist/index.html dist/404.html
-          touch dist/.nojekyl
-          
+          touch dist/.nojekyll
+
+      - name: Verify Pages bundle
+        run: |
+          test -f dist/index.html
+          test -f dist/404.html
+          test -f dist/.nojekyll
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

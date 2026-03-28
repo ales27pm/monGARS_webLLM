@@ -12,7 +12,8 @@
     "test": "node scripts/run-vitest.mjs",
     "tauri:icons": "node scripts/prepare-icons.mjs",
     "tauri:prepare": "npm run tauri:icons && npm run build",
-    "ci:pipeline": "tsx scripts/pipeline-ci.ts"
+    "ci:pipeline": "tsx scripts/pipeline-ci.ts",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@azure/msal-browser": "^4.26.2",
