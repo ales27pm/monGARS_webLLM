@@ -8,14 +8,16 @@ import { useEngine } from "../hooks/useEngine";
 import type { EngineUiState } from "../hooks/useEngine";
 import "./home-screen.css";
 
+type QuickActionTarget = "Voice" | "Settings" | "Reasoning" | "Capabilities";
+
 type HomeScreenProps = {
-  navigation: { navigate: (screen: string) => void };
+  navigation: { navigate: (screen: QuickActionTarget) => void };
 };
 
 type QuickActionConfig = {
   label: string;
   description: string;
-  target: string;
+  target: QuickActionTarget;
 };
 
 const QUICK_ACTIONS: QuickActionConfig[] = [
