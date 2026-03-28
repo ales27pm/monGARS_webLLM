@@ -60,6 +60,20 @@ Le dépôt inclut déjà un workflow GitHub Actions prêt à l’emploi: `.githu
 2. Poussez sur `main` (ou lancez le workflow manuellement).
 3. Le site sera publié automatiquement avec la base correcte (`/` ou `/<repo>/`).
 
+### Sans crédit GitHub Actions
+
+Vous pouvez déployer sans Actions directement depuis `main` avec un dossier `docs/` :
+
+```bash
+npm run deploy:pages
+```
+
+Puis configurez **Settings → Pages → Deploy from a branch**, branche `main` dossier `/docs`.
+
+Le script vérifie `origin`, l’état git et demande confirmation avant push vers `gh-pages` (utilisez `-- --yes` pour non-interactif, `-- --no-push` pour préparer sans push).
+
+Alternative: publier `dist/` vers `gh-pages` (`npx gh-pages -d dist`) puis choisir `gh-pages` `/ (root)`.
+
 Détails complets dans [DEPLOY.md](./DEPLOY.md).
 
 ## Points clés de l’architecture
