@@ -3,16 +3,19 @@
 Mon Gars is a privacy-first AI chat experience that runs fully in the browser using WebLLM. The multi-screen React UI (Home, Voix, Réglages, Raisonnement, Capacités) is optimized for WebGPU when available and gracefully falls back to WebGL/CPU on other browsers. A shared brain layer orchestrates conversation flow so the same services can power the Tauri desktop shell.
 
 ## Prérequis
+
 - Node.js 18 ou plus récent
 - npm 9+
 - Navigateur moderne (WebGPU recommandé mais non obligatoire)
 
 ## Installation
+
 ```bash
 npm install
 ```
 
 ## Lancer le développement
+
 La configuration Vite démarre un serveur HTTPS (port 3000) pour activer WebGPU et les API de contexte sécurisé :
 
 ```bash
@@ -22,6 +25,7 @@ npm run dev
 Ouvrez `https://localhost:3000` et acceptez le certificat autosigné généré par Vite si besoin.
 
 ## Tests
+
 Les suites Vitest fonctionnent en environnement jsdom et mockent WebLLM/WebGPU :
 
 ```bash
@@ -29,6 +33,7 @@ npm test -- --watch=false
 ```
 
 ## Build de production
+
 Générez les assets statiques optimisés et servez-les en local :
 
 ```bash
@@ -47,7 +52,18 @@ cd src-tauri && cargo tauri build
 
 Pour des instructions détaillées de packaging (static hosting et Tauri desktop), consultez [ARCHITECTURE.md](./ARCHITECTURE.md) et [DEPLOY.md](./DEPLOY.md).
 
+## Déploiement GitHub Pages
+
+Le dépôt inclut déjà un workflow GitHub Actions prêt à l’emploi: `.github/workflows/static.yml`.
+
+1. Activez **Settings → Pages → Source: GitHub Actions**.
+2. Poussez sur `main` (ou lancez le workflow manuellement).
+3. Le site sera publié automatiquement avec la base correcte (`/` ou `/<repo>/`).
+
+Détails complets dans [DEPLOY.md](./DEPLOY.md).
+
 ## Points clés de l’architecture
+
 - **Entrée web** : `index.tsx` monte `src/App.tsx` qui encapsule le routeur à onglets et le `ChatProvider`.
 - **Brain** : `src/brain/MonGarsBrainService.ts` gère l’état de conversation, applique le prompt système, séquence les appels WebLLM et expose un snapshot via `useMonGarsBrain` / `ChatContext`.
 - **Services** : `src/services/WebLLMService.*` (Web/Native) encapsulent l’initialisation `@mlc-ai/web-llm`, tandis que `src/services/GpuService.*` détectent WebGPU → WebGL → aucun.
@@ -55,4 +71,5 @@ Pour des instructions détaillées de packaging (static hosting et Tauri desktop
 - **Desktop** : `src-tauri/tauri.conf.json` empaquette le bundle Vite avec une CSP locale stricte, sans accès distant par défaut.
 
 ## Licences et responsabilités
+
 Ce projet est fourni tel quel pour un usage de recherche et d’assistant local. Vérifiez les licences des dépendances dans `package.json` et adaptez la configuration à vos contraintes réglementaires.

@@ -1,47 +1,16 @@
-name: Deploy monGARS_webLLM to ales27pm.github.io
+# Legacy external-repository deployment kept for audit history only.
+# GitHub Pages publishing for this repo now uses `.github/workflows/static.yml`.
+name: (Disabled) Legacy external Pages deployment
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
+  disabled:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-
-      - name: Build project
-        run: npm run build
-
-      - name: Deploy to ales27pm.github.io
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
-          external_repository: ales27pm/ales27pm.github.io
-          publish_branch: main
-          publish_dir: ./dist
-          keep_files: false
-          commit_message: |
-            Deploy monGARS_webLLM from monGARS_webLLM@${{ github.sha }}
-
+      - name: Notice
+        run: echo "External deployment is disabled. Use the official GitHub Pages workflow in static.yml."
