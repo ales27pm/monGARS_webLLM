@@ -6,18 +6,40 @@ import ChatSkeleton from "../components/ChatSkeleton";
 import StatusBanner from "../components/StatusBanner";
 import { useEngine } from "../hooks/useEngine";
 import type { EngineUiState } from "../hooks/useEngine";
-import { palette } from "../theme";
+import "./home-screen.css";
 
 type HomeScreenProps = {
   navigation: { navigate: (screen: string) => void };
 };
 
-const cardStyle: React.CSSProperties = {
-  background: palette.surface,
-  border: `1px solid ${palette.border}`,
-  borderRadius: 12,
-  padding: 16,
+type QuickActionConfig = {
+  label: string;
+  description: string;
+  target: string;
 };
+
+const QUICK_ACTIONS: QuickActionConfig[] = [
+  {
+    label: "Voix / mains libres",
+    description: "Micro + synthèse, zéro cloud",
+    target: "Voice",
+  },
+  {
+    label: "Réglages locaux",
+    description: "Modèles, mémoire, reset",
+    target: "Settings",
+  },
+  {
+    label: "Traçage",
+    description: "Voir le plan et les appels",
+    target: "Reasoning",
+  },
+  {
+    label: "Capacités",
+    description: "Forces, limites, GPU",
+    target: "Capabilities",
+  },
+];
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { bootEngine, engineState, errorText, progress, statusText } =
@@ -49,13 +71,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       error: "Erreur",
     };
 
-      const descriptionMap: Record<EngineUiState, string> = {
-        idle: "On vérifie WebGPU / stockage avant de lancer le modèle.",
-        initializing: statusText,
-        downloading: `${statusText} (${progress}%)`,
-        ready: "",
-        error: "",
-      };
+    const descriptionMap: Record<EngineUiState, string> = {
+      idle: "On vérifie WebGPU / stockage avant de lancer le modèle.",
+      initializing: statusText,
+      downloading: `${statusText} (${progress}%)`,
+      ready: "",
+      error: "",
+    };
 
     return (
       <StatusBanner
@@ -81,71 +103,41 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }, [engineState]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ ...cardStyle }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ maxWidth: 640 }}>
-            <div
-              style={{ color: palette.muted, fontWeight: 700, fontSize: 12 }}
-            >
-              MON GARS — LOCAL FIRST
-            </div>
-            <div style={{ color: palette.text, fontSize: 22, fontWeight: 800 }}>
+    <div className="home-screen">
+      <div className="home-screen__card">
+        <div className="home-screen__hero">
+          <div className="home-screen__hero-copy">
+            <div className="home-screen__eyebrow">MON GARS — LOCAL FIRST</div>
+            <div className="home-screen__title">
               Assistant clandestin qui tourne sur ta machine.
             </div>
-            <div style={{ color: palette.muted, fontSize: 14 }}>
+            <div className="home-screen__description">
               Tape, parle ou mixe les deux : l'agent reste sur ton device,
               crypto-barbu et discret.
             </div>
           </div>
           <GpuStatusCard />
         </div>
-        <div
-          style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}
-        >
-          <QuickAction
-            label="Voix / mains libres"
-            description="Micro + synthèse, zéro cloud"
-            onClick={() => navigation.navigate("Voice")}
-          />
-          <QuickAction
-            label="Réglages locaux"
-            description="Modèles, mémoire, reset"
-            onClick={() => navigation.navigate("Settings")}
-          />
-          <QuickAction
-            label="Traçage"
-            description="Voir le plan et les appels"
-            onClick={() => navigation.navigate("Reasoning")}
-          />
-          <QuickAction
-            label="Capacités"
-            description="Forces, limites, GPU"
-            onClick={() => navigation.navigate("Capabilities")}
-          />
+
+        <div className="home-screen__actions">
+          {QUICK_ACTIONS.map((action) => (
+            <QuickAction
+              key={action.target}
+              label={action.label}
+              description={action.description}
+              onClick={() => navigation.navigate(action.target)}
+            />
+          ))}
         </div>
-        {banner ? <div style={{ marginTop: 12 }}>{banner}</div> : null}
+
+        {banner ? <div className="home-screen__banner">{banner}</div> : null}
       </div>
 
-      <div
-        style={{
-          ...cardStyle,
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
+      <div className="home-screen__card home-screen__card--chat">
         {engineState === "initializing" || engineState === "downloading" ? (
           <ChatSkeleton />
         ) : null}
+
         <ChatTimeline
           style={{
             border: "none",
@@ -154,8 +146,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             maxHeight: "unset",
           }}
         />
-        <div style={{ marginTop: 4 }}>
-          <ChatComposer disabled={composerDisabled} disabledReason={composerReason} />
+
+        <div className="home-screen__composer">
+          <ChatComposer
+            disabled={composerDisabled}
+            disabledReason={composerReason}
+          />
         </div>
       </div>
     </div>
@@ -167,22 +163,9 @@ const QuickAction: React.FC<{
   description: string;
   onClick: () => void;
 }> = ({ label, description, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    style={{
-      background: palette.elevated,
-      padding: 12,
-      borderRadius: 10,
-      border: `1px solid ${palette.border}`,
-      minWidth: 150,
-      color: palette.text,
-      textAlign: "left",
-      cursor: "pointer",
-    }}
-  >
-    <div style={{ fontWeight: 700, fontSize: 15 }}>{label}</div>
-    <div style={{ color: palette.muted, fontSize: 12 }}>{description}</div>
+  <button type="button" onClick={onClick} className="quick-action">
+    <div className="quick-action__label">{label}</div>
+    <div className="quick-action__description">{description}</div>
   </button>
 );
 
