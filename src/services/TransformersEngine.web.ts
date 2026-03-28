@@ -12,6 +12,8 @@ type TransformersInstance = {
   TextStreamer: any;
 };
 
+type GenerationInput = Record<string, any>;
+
 const DEFAULT_LIQUID_MODEL_ID = "onnx-community/LFM2-1.2B-ONNX";
 
 function normalizeModelId(modelId?: string): string {
@@ -42,63 +44,124 @@ export class TransformersEngine implements MonGarsEngine {
   private currentModelId = DEFAULT_LIQUID_MODEL_ID;
 
   async init(options?: InitOptions): Promise<void> {
-    this.currentModelId = normalizeModelId(options?.modelId);
-    await this.ensureInstance(options);
+    await this.setModel(options?.modelId, options);
   }
 
-  private async ensureInstance(
+  private async setModel(
+    modelId?: string,
+    options?: InitOptions,
+  ): Promise<void> {
+    const requested = normalizeModelId(modelId ?? this.currentModelId);
+    if (requested === this.currentModelId && this.instancePromise) {
+      return;
+    }
+
+    await this.reset();
+    this.currentModelId = requested;
+    this.instancePromise = this.createInstance(options);
+  }
+
+  private async createInstance(
     options?: InitOptions,
   ): Promise<TransformersInstance> {
-    const requested = normalizeModelId(options?.modelId ?? this.currentModelId);
-    if (requested !== this.currentModelId) {
-      await this.reset();
-      this.currentModelId = requested;
-    }
+    const transformers = await import("@xenova/transformers");
+    const { AutoModelForCausalLM, AutoTokenizer, TextStreamer } =
+      transformers as any;
 
+    const progressCallback = (progress: any) => {
+      if (!options?.onProgress) return;
+      if (progress?.status === "progress") {
+        const ratio =
+          typeof progress.loaded === "number" &&
+          typeof progress.total === "number" &&
+          progress.total > 0
+            ? progress.loaded / progress.total
+            : 0;
+        options.onProgress({
+          progress: Math.min(1, Math.max(0, ratio)),
+          text: `Téléchargement ${progress.file ?? "du modèle"}`,
+        });
+      }
+    };
+
+    const tokenizer = await AutoTokenizer.from_pretrained(this.currentModelId, {
+      progress_callback: progressCallback,
+    });
+
+    const model = await AutoModelForCausalLM.from_pretrained(
+      this.currentModelId,
+      {
+        dtype: "q4f16",
+        device: "webgpu",
+        progress_callback: progressCallback,
+      },
+    );
+
+    options?.onProgress?.({ progress: 1, text: "Modèle Liquid prêt" });
+    return { model, tokenizer, TextStreamer };
+  }
+
+  private async getInstance(
+    options?: InitOptions,
+  ): Promise<TransformersInstance> {
     if (!this.instancePromise) {
-      this.instancePromise = (async () => {
-        const transformers = await import("@xenova/transformers");
-        const { AutoModelForCausalLM, AutoTokenizer, TextStreamer } =
-          transformers as any;
-
-        const progressCallback = (progress: any) => {
-          if (!options?.onProgress) return;
-          if (progress?.status === "progress") {
-            const ratio =
-              typeof progress.loaded === "number" &&
-              typeof progress.total === "number" &&
-              progress.total > 0
-                ? progress.loaded / progress.total
-                : 0;
-            options.onProgress({
-              progress: Math.min(1, Math.max(0, ratio)),
-              text: `Téléchargement ${progress.file ?? "du modèle"}`,
-            });
-          }
-        };
-
-        const tokenizer = await AutoTokenizer.from_pretrained(
-          this.currentModelId,
-          {
-            progress_callback: progressCallback,
-          },
-        );
-
-        const model = await AutoModelForCausalLM.from_pretrained(
-          this.currentModelId,
-          {
-            dtype: "q4f16",
-            device: "webgpu",
-            progress_callback: progressCallback,
-          },
-        );
-
-        options?.onProgress?.({ progress: 1, text: "Modèle Liquid prêt" });
-        return { model, tokenizer, TextStreamer };
-      })();
+      await this.setModel(this.currentModelId, options);
     }
+    return this.instancePromise as Promise<TransformersInstance>;
+  }
 
-    return this.instancePromise;
+  private createTextStream(
+    model: any,
+    tokenizer: any,
+    TextStreamer: any,
+    input: GenerationInput,
+    options: CompletionOptions,
+  ): AsyncIterable<string> {
+    const queue: string[] = [];
+    let done = false;
+    let streamError: unknown = null;
+
+    const streamer = new TextStreamer(tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: (tokenText: string) => {
+        if (typeof tokenText === "string" && tokenText.length > 0) {
+          queue.push(tokenText);
+        }
+      },
+    });
+
+    const generatePromise = model
+      .generate({
+        ...input,
+        max_new_tokens: options.maxTokens,
+        temperature: options.temperature,
+        do_sample: options.temperature > 0,
+        streamer,
+        abort_signal: options.signal,
+      })
+      .then(() => {
+        done = true;
+      })
+      .catch((err: unknown) => {
+        streamError = err;
+        done = true;
+      });
+
+    return (async function* () {
+      while (!done || queue.length > 0) {
+        if (options.signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (queue.length > 0) {
+          yield queue.shift() as string;
+          continue;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await generatePromise;
+      if (streamError) throw streamError;
+    })();
   }
 
   async completeChat(
@@ -109,60 +172,23 @@ export class TransformersEngine implements MonGarsEngine {
       throw new DOMException("Aborted", "AbortError");
     }
 
-    const { model, tokenizer, TextStreamer } = await this.ensureInstance();
+    const { model, tokenizer, TextStreamer } = await this.getInstance();
 
     const input = tokenizer.apply_chat_template(buildMessages(messages), {
       add_generation_prompt: true,
       return_dict: true,
-    });
+    }) as GenerationInput;
 
     if (options.stream) {
-      const queue: string[] = [];
-      let done = false;
-      let streamError: unknown = null;
-
-      const streamer = new TextStreamer(tokenizer, {
-        skip_prompt: true,
-        skip_special_tokens: true,
-        callback_function: (tokenText: string) => {
-          if (typeof tokenText === "string" && tokenText.length > 0) {
-            queue.push(tokenText);
-          }
-        },
-      });
-
-      const generatePromise = model
-        .generate({
-          ...input,
-          max_new_tokens: options.maxTokens,
-          temperature: options.temperature,
-          do_sample: options.temperature > 0,
-          streamer,
-        })
-        .then(() => {
-          done = true;
-        })
-        .catch((err: unknown) => {
-          streamError = err;
-          done = true;
-        });
-
-      const stream = (async function* () {
-        while (!done || queue.length > 0) {
-          if (options.signal?.aborted) {
-            throw new DOMException("Aborted", "AbortError");
-          }
-          if (queue.length > 0) {
-            yield queue.shift() as string;
-            continue;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        await generatePromise;
-        if (streamError) throw streamError;
-      })();
-
-      return { stream };
+      return {
+        stream: this.createTextStream(
+          model,
+          tokenizer,
+          TextStreamer,
+          input,
+          options,
+        ),
+      };
     }
 
     const output = await model.generate({
@@ -171,6 +197,7 @@ export class TransformersEngine implements MonGarsEngine {
       temperature: options.temperature,
       do_sample: options.temperature > 0,
       return_dict_in_generate: true,
+      abort_signal: options.signal,
     });
 
     const inputLength = input?.input_ids?.dims?.[1] ?? 0;
@@ -198,17 +225,14 @@ export class TransformersEngine implements MonGarsEngine {
     }
   }
 
-  getCurrentEngine = async (): Promise<unknown | null> => this.instancePromise;
+  getCurrentEngine = async () => this.instancePromise;
 }
 
 export const isLiquidTransformersModel = (modelId?: string): boolean => {
   if (!modelId) return false;
+  const normalized = normalizeModelId(modelId);
   return (
-    modelId.startsWith("onnx-community/LFM2-") ||
-    modelId.startsWith("onnx-community/LFM2.5-") ||
-    modelId.startsWith("LFM2-") ||
-    modelId === "350M" ||
-    modelId === "700M" ||
-    modelId === "1.2B"
+    normalized.startsWith("onnx-community/LFM2-") ||
+    normalized.startsWith("onnx-community/LFM2.5-")
   );
 };

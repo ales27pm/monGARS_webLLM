@@ -25,19 +25,30 @@ type ChatCompletionPayload = {
   signal?: AbortSignal;
 };
 
+type BackendEngineHandle =
+  | MLCEngine
+  | Awaited<ReturnType<TransformersEngine["getCurrentEngine"]>>;
+
 class WebBackend implements MonGarsEngine {
   private enginePromise: Promise<MLCEngine> | null = null;
   private currentEngine: MLCEngine | null = null;
   private selectedModelId: string = DEFAULT_MODEL_ID;
-  private readonly transformersBackend: MonGarsEngine =
-    new TransformersEngine();
+  private readonly transformersBackend = new TransformersEngine();
+
+  private setModelId(modelId?: string) {
+    if (modelId) {
+      this.selectedModelId = modelId;
+    }
+  }
+
+  private isTransformersBackend(): boolean {
+    return isLiquidTransformersModel(this.selectedModelId);
+  }
 
   async init(options?: InitOptions): Promise<void> {
-    if (options?.modelId) {
-      this.selectedModelId = options.modelId;
-    }
+    this.setModelId(options?.modelId);
 
-    if (isLiquidTransformersModel(this.selectedModelId)) {
+    if (this.isTransformersBackend()) {
       await this.transformersBackend.init({
         ...options,
         modelId: this.selectedModelId,
@@ -45,13 +56,13 @@ class WebBackend implements MonGarsEngine {
       return;
     }
 
-    await this.ensureEngine({
+    await this.ensureMLCEngine({
       ...options,
       modelId: this.selectedModelId,
     });
   }
 
-  private async ensureEngine(options?: InitOptions): Promise<MLCEngine> {
+  private async ensureMLCEngine(options?: InitOptions): Promise<MLCEngine> {
     if (!this.enginePromise) {
       this.enginePromise = (async () => {
         const webllm = await import("@mlc-ai/web-llm");
@@ -92,11 +103,13 @@ class WebBackend implements MonGarsEngine {
     messages: ChatMessage[],
     options: CompletionOptions,
   ): Promise<CompletionResult> {
-    if (isLiquidTransformersModel(this.selectedModelId)) {
+    if (this.isTransformersBackend()) {
       return this.transformersBackend.completeChat(messages, options);
     }
 
-    const engine = await this.ensureEngine({ modelId: this.selectedModelId });
+    const engine = await this.ensureMLCEngine({
+      modelId: this.selectedModelId,
+    });
 
     const payload: ChatCompletionPayload = {
       messages: this.buildMessages(messages),
@@ -184,7 +197,7 @@ class WebBackend implements MonGarsEngine {
   }
 
   getRuntimeStatsText = async (): Promise<string> => {
-    if (isLiquidTransformersModel(this.selectedModelId)) {
+    if (this.isTransformersBackend()) {
       return "Statistiques runtime non disponibles pour Transformers.js";
     }
 
@@ -198,9 +211,9 @@ class WebBackend implements MonGarsEngine {
     return "Statistiques indisponibles";
   };
 
-  getCurrentEngine = async (): Promise<unknown | null> => {
-    if (isLiquidTransformersModel(this.selectedModelId)) {
-      return this.transformersBackend.getCurrentEngine?.() ?? null;
+  getCurrentEngine = async (): Promise<BackendEngineHandle | null> => {
+    if (this.isTransformersBackend()) {
+      return (await this.transformersBackend.getCurrentEngine?.()) ?? null;
     }
 
     if (!this.enginePromise) return null;
