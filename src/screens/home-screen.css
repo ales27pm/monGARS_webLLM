@@ -1,0 +1,99 @@
+.home-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-screen__card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.home-screen__card--chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-screen__hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-screen__hero-copy {
+  max-width: 640px;
+}
+
+.home-screen__eyebrow {
+  color: var(--app-muted);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.home-screen__title {
+  color: var(--app-text);
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.home-screen__description {
+  color: var(--app-muted);
+  font-size: 14px;
+}
+
+.home-screen__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.home-screen__banner {
+  margin-top: 12px;
+}
+
+.home-screen__composer {
+  margin-top: 4px;
+}
+
+.quick-action {
+  background: var(--app-surface);
+  background: color-mix(in srgb, var(--app-surface) 75%, white 25%);
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+  min-width: 150px;
+  color: var(--app-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.quick-action:hover,
+.quick-action:focus-visible {
+  border-color: var(--app-accent);
+  transform: translateY(-1px);
+}
+
+.quick-action:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 30%, transparent);
+}
+
+.quick-action__label {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.quick-action__description {
+  color: var(--app-muted);
+  font-size: 12px;
+}
