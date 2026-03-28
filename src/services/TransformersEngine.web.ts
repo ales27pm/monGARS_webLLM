@@ -58,7 +58,13 @@ export class TransformersEngine implements MonGarsEngine {
 
     await this.reset();
     this.currentModelId = requested;
-    this.instancePromise = this.createInstance(options);
+    const nextPromise = this.createInstance(options).catch((err: unknown) => {
+      if (this.instancePromise === nextPromise) {
+        this.instancePromise = null;
+      }
+      throw err;
+    });
+    this.instancePromise = nextPromise;
   }
 
   private async createInstance(
@@ -215,8 +221,9 @@ export class TransformersEngine implements MonGarsEngine {
   }
 
   async reset(): Promise<void> {
-    const instance = await this.instancePromise;
+    const pendingInstance = this.instancePromise;
     this.instancePromise = null;
+    const instance = await pendingInstance;
     if (!instance) return;
 
     const maybeDispose = instance.model?.dispose;

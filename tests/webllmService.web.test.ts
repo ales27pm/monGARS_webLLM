@@ -144,4 +144,28 @@ describe("WebLLMService.web", () => {
     );
     expect(mockState.engineCalls).toBe(0);
   });
+
+  it("rebuilds MLC engine when model id changes", async () => {
+    await webLLMService.init({ modelId: "Llama-3.2-1B-Instruct-q4f32_1-MLC" });
+    await webLLMService.init({ modelId: "Llama-3.2-3B-Instruct-q4f16_1-MLC" });
+
+    expect(mockState.engineCalls).toBe(2);
+    expect(mockState.lastModelId).toBe("Llama-3.2-3B-Instruct-q4f16_1-MLC");
+  });
+
+  it("returns an MLCEngine-compatible adapter for transformers models", async () => {
+    await webLLMService.init({ modelId: "onnx-community/LFM2-700M-ONNX" });
+    const engine = await webLLMService.getCurrentEngine();
+
+    expect(engine).toBeTruthy();
+    expect(typeof (engine as any)?.chat?.completions?.create).toBe("function");
+
+    const response = await (engine as any).chat.completions.create({
+      messages: [{ role: "user", content: "Salut" }],
+      temperature: 0.4,
+      max_tokens: 32,
+      stream: false,
+    });
+    expect(response?.choices?.[0]?.message?.content).toBe("Réponse Liquid");
+  });
 });

@@ -77,7 +77,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="space-y-6">
           <div className="setting-group">
-            <label className="setting-label">Modèle IA</label>
+            <label htmlFor="modelId" className="setting-label">
+              Modèle IA
+            </label>
             <select
               id="modelId"
               name="modelId"
