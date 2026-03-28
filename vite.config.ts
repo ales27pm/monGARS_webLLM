@@ -14,8 +14,9 @@ export default defineConfig(({ mode }) => {
   // files like `.env` and `.env.local` in the project root.
   const env = loadEnv(mode, '.', '');
   return {
-    // Host the app from the domain root when deployed to GitHub Pages.
-    base: '/',
+    // Use repository subpath on GitHub Pages while keeping local dev on '/'.
+    // Can be overridden with VITE_BASE_PATH when deploying elsewhere.
+    base: env.VITE_BASE_PATH || (mode === 'production' ? '/monGARS_webLLM/' : '/'),
     // Register plugins. The order matters: React first, SSL second.
     plugins: [
       react(),
