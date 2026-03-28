@@ -23,13 +23,17 @@ export function getModelLibUrl(modelId: string): string {
       : "Llama-3.2-1B-Instruct-q4f16_1-MLC";
 
     const fallback = MODEL_REGISTRY[fallbackId];
-    if (!fallback) {
+    if (!fallback || fallback.backend !== "mlc" || !fallback.wasmFilename) {
       // Really pathological; we *should* always have the fallback
       console.warn(
         `[getModelLibUrl] Unknown model "${modelId}" and fallback "${fallbackId}" missing from registry. Falling back to DEFAULT_MODEL_ID only.`,
       );
       const defaultMeta = MODEL_REGISTRY[DEFAULT_MODEL_ID];
-      if (!defaultMeta) {
+      if (
+        !defaultMeta ||
+        defaultMeta.backend !== "mlc" ||
+        !defaultMeta.wasmFilename
+      ) {
         throw new Error(
           "[getModelLibUrl] DEFAULT_MODEL_ID is not present in MODEL_REGISTRY.",
         );
@@ -41,6 +45,12 @@ export function getModelLibUrl(modelId: string): string {
       `[getModelLibUrl] Unknown model "${modelId}". Falling back to ${fallbackId}.`,
     );
     return `${MODEL_LIBRARY_BASE_URL}${fallback.wasmFilename}`;
+  }
+
+  if (metadata.backend !== "mlc" || !metadata.wasmFilename) {
+    throw new Error(
+      `[getModelLibUrl] Model "${modelId}" is not an MLC WebLLM model.`,
+    );
   }
 
   return `${MODEL_LIBRARY_BASE_URL}${metadata.wasmFilename}`;

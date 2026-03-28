@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { Config } from "../types";
-import { getModelLabel, getModelMetadata } from "../models";
+import { getModelLabel, getModelMetadata, MODEL_REGISTRY } from "../models";
 
 interface SettingsModalProps {
   isVisible: boolean;
@@ -78,12 +78,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="space-y-6">
           <div className="setting-group">
             <label className="setting-label">Modèle IA</label>
-            <div className="setting-input bg-slate-100 dark:bg-slate-700/50">
-              {modelLabel}
-            </div>
+            <select
+              id="modelId"
+              name="modelId"
+              value={config.modelId}
+              onChange={handleInputChange}
+              className="setting-input"
+            >
+              {Object.values(MODEL_REGISTRY).map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
             <p className="text-xs text-slate-500 mt-1">
               <i className="fa-solid fa-info-circle mr-1"></i>
-              {modelDescription}
+              {modelDescription} ({modelLabel})
             </p>
           </div>
 
