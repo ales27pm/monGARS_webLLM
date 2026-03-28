@@ -36,7 +36,7 @@ This repository already includes an Actions workflow at `.github/workflows/stati
 Notes:
 
 - The workflow uses `actions/configure-pages` to detect the right base path automatically (`/` for user/org pages, `/<repo>/` for project pages).
-- It also creates `dist/404.html` (SPA route fallback) and `dist/.nojekyll` to avoid Jekyll processing.
+- It also ensures `dist/.nojekyll` exists and creates `dist/404.html` as an SPA fallback only when a custom 404 page is not already present.
 - If you use a custom domain, add your `CNAME` file in `dist/` during build or configure it in GitHub Pages settings.
 - Legacy workflows for Jekyll/external-repo publishing are intentionally disabled to avoid double-deploy conflicts.
 

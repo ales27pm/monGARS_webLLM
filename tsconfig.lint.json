@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "*.ts",
+    "*.tsx",
+    "vite.config.ts",
+    "vitest.setup.ts"
+  ],
+  "exclude": ["dist", "node_modules", "src-tauri"]
+}

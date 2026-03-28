@@ -42,7 +42,7 @@ jobs:
         run: |
           echo "Using Vite base path: ${BASE_PATH}"
           npm run build -- --base="${BASE_PATH}"
-          cp dist/index.html dist/404.html
+          if [ ! -f dist/404.html ]; then cp dist/index.html dist/404.html; fi
           touch dist/.nojekyll
 
       - name: Verify Pages bundle
