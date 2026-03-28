@@ -24,6 +24,10 @@ export interface InitOptions {
   onProgress?: (report: InitProgressReport) => void;
 }
 
+export type EngineHandle = {
+  dispose?: () => Promise<void> | void;
+};
+
 export interface MonGarsEngine {
   init: (options?: InitOptions) => Promise<void>;
   completeChat: (
@@ -32,5 +36,5 @@ export interface MonGarsEngine {
   ) => Promise<CompletionResult>;
   reset: () => Promise<void>;
   getRuntimeStatsText?: () => Promise<string>;
-  getCurrentEngine?: () => Promise<unknown | null>;
+  getCurrentEngine?: () => Promise<EngineHandle | null>;
 }

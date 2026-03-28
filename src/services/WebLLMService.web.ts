@@ -7,6 +7,10 @@ import type {
 } from "./WebLLMService.types";
 import { DEFAULT_MODEL_ID } from "../../models";
 import type { MLCEngine } from "../../types";
+import {
+  TransformersEngine,
+  isLiquidTransformersModel,
+} from "./TransformersEngine.web";
 
 type ChatCompletionMessageParam = {
   role: "system" | "user" | "assistant" | "tool";
@@ -21,21 +25,53 @@ type ChatCompletionPayload = {
   signal?: AbortSignal;
 };
 
+type BackendEngineHandle = MLCEngine;
+
 class WebBackend implements MonGarsEngine {
   private enginePromise: Promise<MLCEngine> | null = null;
   private currentEngine: MLCEngine | null = null;
+  private selectedModelId: string = DEFAULT_MODEL_ID;
+  private readonly transformersBackend = new TransformersEngine();
+  private transformersEngineAdapter: MLCEngine | null = null;
 
-  async init(options?: InitOptions): Promise<void> {
-    await this.ensureEngine(options);
+  private setModelId(modelId?: string): boolean {
+    if (!modelId || modelId === this.selectedModelId) return false;
+    this.selectedModelId = modelId;
+    return true;
   }
 
-  private async ensureEngine(options?: InitOptions): Promise<MLCEngine> {
+  private isTransformersBackend(): boolean {
+    return isLiquidTransformersModel(this.selectedModelId);
+  }
+
+  async init(options?: InitOptions): Promise<void> {
+    const modelChanged = this.setModelId(options?.modelId);
+    if (modelChanged) {
+      await this.disposeMLCEngine();
+      this.transformersEngineAdapter = null;
+    }
+
+    if (this.isTransformersBackend()) {
+      await this.transformersBackend.init({
+        ...options,
+        modelId: this.selectedModelId,
+      });
+      return;
+    }
+
+    await this.ensureMLCEngine({
+      ...options,
+      modelId: this.selectedModelId,
+    });
+  }
+
+  private async ensureMLCEngine(options?: InitOptions): Promise<MLCEngine> {
     if (!this.enginePromise) {
       this.enginePromise = (async () => {
         const webllm = await import("@mlc-ai/web-llm");
         const { CreateMLCEngine } = webllm as any;
         const engine = (await CreateMLCEngine(
-          options?.modelId ?? DEFAULT_MODEL_ID,
+          options?.modelId ?? this.selectedModelId ?? DEFAULT_MODEL_ID,
           {
             initProgressCallback: options?.onProgress,
           },
@@ -50,6 +86,70 @@ class WebBackend implements MonGarsEngine {
       options.onProgress({ progress: 1, text: "Modèle prêt" });
     }
     return engine;
+  }
+
+  private async disposeMLCEngine(): Promise<void> {
+    const pendingPromise = this.enginePromise;
+    this.enginePromise = null;
+    this.currentEngine = null;
+    const engine = await pendingPromise;
+    if (engine && typeof engine.dispose === "function") {
+      try {
+        await engine.dispose();
+      } catch (err) {
+        console.warn("Erreur lors de la libération de WebLLM:", err);
+      }
+    }
+  }
+
+  private createTransformersAdapter(): MLCEngine {
+    return {
+      chat: {
+        completions: {
+          create: async (options: {
+            messages: { role: string; content: string | null }[];
+            temperature: number;
+            max_tokens: number;
+            stream: boolean;
+            signal?: AbortSignal;
+          }) => {
+            const completion = await this.transformersBackend.completeChat(
+              options.messages as ChatMessage[],
+              {
+                temperature: options.temperature,
+                maxTokens: options.max_tokens,
+                stream: options.stream,
+                signal: options.signal,
+              },
+            );
+
+            if (options.stream && completion.stream) {
+              const asyncIterator = (async function* () {
+                for await (const token of completion.stream as AsyncIterable<string>) {
+                  yield { choices: [{ delta: { content: token } }] };
+                }
+              })();
+              return asyncIterator;
+            }
+
+            return {
+              choices: [
+                {
+                  message: {
+                    content: completion.text ?? "",
+                  },
+                },
+              ],
+            };
+          },
+        },
+      },
+      runtimeStatsText: async () =>
+        "Statistiques runtime non disponibles pour Transformers.js",
+      dispose: async () => {
+        await this.transformersBackend.reset();
+      },
+    };
   }
 
   /**
@@ -70,7 +170,13 @@ class WebBackend implements MonGarsEngine {
     messages: ChatMessage[],
     options: CompletionOptions,
   ): Promise<CompletionResult> {
-    const engine = await this.ensureEngine();
+    if (this.isTransformersBackend()) {
+      return this.transformersBackend.completeChat(messages, options);
+    }
+
+    const engine = await this.ensureMLCEngine({
+      modelId: this.selectedModelId,
+    });
 
     const payload: ChatCompletionPayload = {
       messages: this.buildMessages(messages),
@@ -84,7 +190,7 @@ class WebBackend implements MonGarsEngine {
       const chunks = await engine.chat.completions.create(payload);
       const isAsyncIterable =
         chunks != null &&
-        (typeof (chunks as any)[Symbol.asyncIterator] === "function");
+        typeof (chunks as any)[Symbol.asyncIterator] === "function";
 
       if (!isAsyncIterable) {
         throw new Error(
@@ -142,20 +248,16 @@ class WebBackend implements MonGarsEngine {
   }
 
   async reset(): Promise<void> {
-    const pendingPromise = this.enginePromise;
-    this.enginePromise = null;
-    this.currentEngine = null;
-    const engine = await pendingPromise;
-    if (engine && typeof engine.dispose === "function") {
-      try {
-        await engine.dispose();
-      } catch (err) {
-        console.warn("Erreur lors de la libération de WebLLM:", err);
-      }
-    }
+    await this.transformersBackend.reset();
+    this.transformersEngineAdapter = null;
+    await this.disposeMLCEngine();
   }
 
   getRuntimeStatsText = async (): Promise<string> => {
+    if (this.isTransformersBackend()) {
+      return "Statistiques runtime non disponibles pour Transformers.js";
+    }
+
     if (!this.currentEngine) {
       return "Moteur non initialisé";
     }
@@ -166,7 +268,16 @@ class WebBackend implements MonGarsEngine {
     return "Statistiques indisponibles";
   };
 
-  getCurrentEngine = async (): Promise<MLCEngine | null> => {
+  getCurrentEngine = async (): Promise<BackendEngineHandle | null> => {
+    if (this.isTransformersBackend()) {
+      const engine = await this.transformersBackend.getCurrentEngine?.();
+      if (!engine) return null;
+      if (!this.transformersEngineAdapter) {
+        this.transformersEngineAdapter = this.createTransformersAdapter();
+      }
+      return this.transformersEngineAdapter;
+    }
+
     if (!this.enginePromise) return null;
     return this.enginePromise;
   };
