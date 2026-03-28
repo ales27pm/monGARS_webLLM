@@ -24,7 +24,7 @@ npm run preview -- --host --port 4173
 
 This starts a local static server against the built assets.
 
-## Deploy on GitHub Pages (recommended)
+## Deploy on GitHub Pages with Actions (recommended)
 
 This repository already includes an Actions workflow at `.github/workflows/static.yml` that builds Vite and publishes `dist/` to GitHub Pages.
 
@@ -39,6 +39,50 @@ Notes:
 - It also ensures `dist/.nojekyll` exists and creates `dist/404.html` as an SPA fallback only when a custom 404 page is not already present.
 - If you use a custom domain, add your `CNAME` file in `dist/` during build or configure it in GitHub Pages settings.
 - Legacy workflows for Jekyll/external-repo publishing are intentionally disabled to avoid double-deploy conflicts.
+
+## Deploy on GitHub Pages without Actions minutes
+
+If you cannot use GitHub Actions minutes, you can still publish manually from your machine.
+
+### Option A (no extra branch): publish from `/docs` on `main`
+
+1. Build locally and sync output to `docs/`:
+
+```bash
+npm install
+npm run deploy:pages
+```
+
+2. Commit and push `docs/` to `main`.
+
+3. In GitHub, open **Settings → Pages** and set:
+   - **Source**: `Deploy from a branch`
+   - **Branch**: `main` and folder `/docs`
+
+`deploy:pages` runs `vite build`, copies `dist/` into `docs/`, adds `.nojekyll`, creates `404.html` from `index.html`, then prompts before force-pushing to `origin/gh-pages`.
+
+Useful flags:
+
+- `npm run deploy:pages -- --yes` skips the prompt and pushes automatically.
+- `npm run deploy:pages -- --no-push` prepares `docs/` only (no remote required).
+- `npm run deploy:pages -- --allow-any-branch` allows running outside `main`/`master`.
+
+### Option B (dedicated branch): publish to `gh-pages`
+
+```bash
+npm run build
+touch dist/.nojekyll
+cp dist/index.html dist/404.html
+npx gh-pages -d dist
+```
+
+Then set Pages source to **Deploy from a branch → gh-pages / (root)**.
+
+Notes:
+
+- Both options avoid Actions usage entirely, but every release requires a local build/publish step.
+- For project pages, ensure your Vite `base` matches `/<repo>/`; for user/org pages, use `/`.
+- Keep `404.html` in sync with `index.html` for SPA routing fallback.
 
 ## Serve with NGINX (example)
 
