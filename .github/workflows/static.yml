@@ -47,9 +47,9 @@ jobs:
 
       - name: Verify Pages bundle
         run: |
-          test -f dist/index.html
-          test -f dist/404.html
-          test -f dist/.nojekyll
+          test -f dist/index.html || { echo "ERROR: missing dist/index.html"; exit 1; }
+          test -f dist/404.html || { echo "ERROR: missing dist/404.html"; exit 1; }
+          test -f dist/.nojekyll || { echo "ERROR: missing dist/.nojekyll"; exit 1; }
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
