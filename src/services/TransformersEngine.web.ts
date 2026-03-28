@@ -5,6 +5,7 @@ import type {
   InitOptions,
   MonGarsEngine,
 } from "./WebLLMService.types";
+import { MODEL_REGISTRY } from "../../models";
 
 type TransformersInstance = {
   model: any;
@@ -238,6 +239,10 @@ export class TransformersEngine implements MonGarsEngine {
 export const isLiquidTransformersModel = (modelId?: string): boolean => {
   if (!modelId) return false;
   const normalized = normalizeModelId(modelId);
+  const metadata = MODEL_REGISTRY[normalized];
+  if (metadata) {
+    return metadata.backend === "transformers";
+  }
   return (
     normalized.startsWith("onnx-community/LFM2-") ||
     normalized.startsWith("onnx-community/LFM2.5-")
