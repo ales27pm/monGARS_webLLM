@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ChatTimeline from "../components/chat/ChatTimeline";
+import HomeComposer from "../components/chat/HomeComposer";
 import StatusBanner from "../components/StatusBanner";
 import { useEngine } from "../hooks/useEngine";
 import { useChatContext } from "../context/ChatContext";
@@ -12,7 +13,30 @@ type HomeScreenProps = {
   navigation: { navigate: (screen: QuickActionTarget) => void };
 };
 
-const quickPromptCards = [
+type PromptCard = {
+  title: string;
+  subtitle: string;
+};
+
+const HOME_UI = {
+  appTitle: "ChatGPT",
+  drawerAriaLabel: "Menu principal",
+  searchPlaceholder: "Recherchez des clavardages",
+  searchAriaLabel: "Rechercher dans les clavardages",
+  newChatLabel: "Nouveau clavardage",
+  gemsLabel: "Gems",
+  chatsLabel: "Clavardages",
+  shortcutsLabel: "Raccourcis",
+  readyLabel: "Prêt quand vous l'êtes.",
+  composerPlaceholder: "Demandez ce que vous voulez",
+  modeLabel: "Réflexion prolongée",
+  voiceActionLabel: "Activer le micro",
+  openMenuLabel: "Ouvrir le menu",
+  closeMenuLabel: "Fermer le menu",
+  altActionLabel: "Action rapide",
+} as const;
+
+const QUICK_PROMPT_CARDS: PromptCard[] = [
   {
     title: "Crée une illustration",
     subtitle: "pour une boulangerie",
@@ -23,22 +47,62 @@ const quickPromptCards = [
   },
 ];
 
-const assistantPills = [
+const ASSISTANT_PILLS = [
   "Créer une image",
   "Créer de la musique",
   "Écrire n'importe quoi",
   "Égayer ma journée",
   "M'aider à apprendre",
+] as const;
+
+const GEM_ITEMS = ["Partenaire de codage", "monGARS"] as const;
+
+const CHAT_ITEMS = [
+  "Conception d'un assistant IA",
+  "Prompt 78.txt Implementation",
+  "Algorithm Improvement Plan",
+] as const;
+
+const SHORTCUT_ITEMS: { label: string; target: QuickActionTarget }[] = [
+  { label: "Voix", target: "Voice" },
+  { label: "Réglages", target: "Settings" },
+  { label: "Traçage", target: "Reasoning" },
+  { label: "Capacités", target: "Capabilities" },
 ];
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [isDrawerOpen, setDrawerOpen] = useState(false);
+  const [drawerQuery, setDrawerQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const { bootEngine, engineState, errorText, progress, statusText } =
     useEngine();
   const { sendMessage, isGenerating, messages } = useChatContext();
 
   const hasMessages = messages.length > 0;
+  const canSend = engineState === "ready" && !isGenerating;
+
+  const filteredChats = useMemo(() => {
+    const query = drawerQuery.trim().toLocaleLowerCase();
+    if (!query) return CHAT_ITEMS;
+    return CHAT_ITEMS.filter((chat) =>
+      chat.toLocaleLowerCase().includes(query),
+    );
+  }, [drawerQuery]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) return undefined;
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDrawerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [isDrawerOpen]);
 
   const banner = useMemo(() => {
     if (engineState === "ready") return null;
@@ -88,68 +152,75 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const handleSend = async () => {
     const text = inputValue.trim();
-    if (!text || engineState !== "ready" || isGenerating) return;
+    if (!text || !canSend) return;
     await sendMessage(text);
     setInputValue("");
   };
 
   const handlePromptCard = async (prompt: string) => {
-    setInputValue(prompt);
-    if (engineState !== "ready" || isGenerating) return;
+    if (!canSend) {
+      setInputValue(prompt);
+      return;
+    }
+
     await sendMessage(prompt);
-    setInputValue("");
   };
 
   return (
     <div className="home-shell">
       <aside
+        id="home-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={HOME_UI.drawerAriaLabel}
+        aria-hidden={!isDrawerOpen}
         className={`home-drawer ${isDrawerOpen ? "home-drawer--open" : ""}`}
       >
-        <div className="home-drawer__search">Recherchez des clavardages</div>
+        <input
+          type="search"
+          className="home-drawer__search"
+          placeholder={HOME_UI.searchPlaceholder}
+          aria-label={HOME_UI.searchAriaLabel}
+          value={drawerQuery}
+          onChange={(event) => setDrawerQuery(event.target.value)}
+        />
+
         <button type="button" className="home-drawer__new-chat">
           <span>✎</span>
-          <span>Nouveau clavardage</span>
+          <span>{HOME_UI.newChatLabel}</span>
         </button>
 
-        <div className="home-drawer__section-title">Gems</div>
-        <button type="button" className="home-drawer__item">
-          Partenaire de codage
-        </button>
-        <button type="button" className="home-drawer__item">
-          monGARS
-        </button>
+        <div className="home-drawer__section-title">{HOME_UI.gemsLabel}</div>
+        {GEM_ITEMS.map((gem) => (
+          <button key={gem} type="button" className="home-drawer__item">
+            {gem}
+          </button>
+        ))}
 
-        <div className="home-drawer__section-title">Clavardages</div>
-        <button type="button" className="home-drawer__item">
-          Conception d'un assistant IA
-        </button>
-        <button type="button" className="home-drawer__item">
-          Prompt 78.txt Implementation
-        </button>
-        <button type="button" className="home-drawer__item">
-          Algorithm Improvement Plan
-        </button>
+        <div className="home-drawer__section-title">{HOME_UI.chatsLabel}</div>
+        {filteredChats.length > 0 ? (
+          filteredChats.map((chat) => (
+            <button key={chat} type="button" className="home-drawer__item">
+              {chat}
+            </button>
+          ))
+        ) : (
+          <div className="home-drawer__empty">Aucun clavardage trouvé.</div>
+        )}
 
-        <div className="home-drawer__section-title">Raccourcis</div>
+        <div className="home-drawer__section-title">
+          {HOME_UI.shortcutsLabel}
+        </div>
         <div className="home-drawer__quick-actions">
-          <button type="button" onClick={() => navigation.navigate("Voice")}>
-            Voix
-          </button>
-          <button type="button" onClick={() => navigation.navigate("Settings")}>
-            Réglages
-          </button>
-          <button
-            type="button"
-            onClick={() => navigation.navigate("Reasoning")}
-          >
-            Traçage
-          </button>
-          <button
-            type="button"
-            onClick={() => navigation.navigate("Capabilities")}
-          >
-            Capacités
-          </button>
+          {SHORTCUT_ITEMS.map((shortcut) => (
+            <button
+              key={shortcut.label}
+              type="button"
+              onClick={() => navigation.navigate(shortcut.target)}
+            >
+              {shortcut.label}
+            </button>
+          ))}
         </div>
       </aside>
 
@@ -157,7 +228,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         <button
           type="button"
           className="home-overlay"
-          aria-label="Fermer le menu"
+          aria-label={HOME_UI.closeMenuLabel}
           onClick={() => setDrawerOpen(false)}
         />
       ) : null}
@@ -168,12 +239,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             type="button"
             className="home-icon-btn"
             onClick={() => setDrawerOpen(true)}
+            aria-label={HOME_UI.openMenuLabel}
+            aria-controls="home-drawer"
+            aria-expanded={isDrawerOpen}
           >
             ☰
           </button>
-          <div className="home-topbar__title">ChatGPT</div>
+          <div className="home-topbar__title">{HOME_UI.appTitle}</div>
           <div className="home-topbar__actions">
-            <button type="button" className="home-icon-btn">
+            <button
+              type="button"
+              className="home-icon-btn"
+              aria-label={HOME_UI.altActionLabel}
+            >
               ◎
             </button>
             <div className="home-avatar">AL</div>
@@ -183,10 +261,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {!hasMessages ? (
           <section className="home-empty-state">
             <div className="home-empty-state__heading">
-              Prêt quand vous l'êtes.
+              {HOME_UI.readyLabel}
             </div>
             <div className="home-pill-stack">
-              {assistantPills.map((pill) => (
+              {ASSISTANT_PILLS.map((pill) => (
                 <button
                   key={pill}
                   type="button"
@@ -215,7 +293,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
         {!hasMessages ? (
           <div className="home-prompt-cards" aria-label="Suggestions rapides">
-            {quickPromptCards.map((card) => (
+            {QUICK_PROMPT_CARDS.map((card) => (
               <button
                 key={card.title}
                 type="button"
@@ -231,43 +309,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </div>
         ) : null}
 
-        <footer className="home-composer-wrap">
-          {banner ? <div className="home-banner">{banner}</div> : null}
-
-          <div className="home-composer">
-            <input
-              className="home-composer__input"
-              placeholder="Demandez ce que vous voulez"
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void handleSend();
-                }
-              }}
-              disabled={engineState !== "ready" || isGenerating}
-            />
-            <div className="home-composer__actions">
-              <button type="button" className="home-chip">
-                Réflexion prolongée
-              </button>
-              <button type="button" className="home-icon-action">
-                🎤
-              </button>
-              <button
-                type="button"
-                className="home-send"
-                onClick={() => {
-                  void handleSend();
-                }}
-                disabled={engineState !== "ready" || isGenerating}
-              >
-                {isGenerating ? "…" : "↑"}
-              </button>
-            </div>
-          </div>
-        </footer>
+        <HomeComposer
+          inputValue={inputValue}
+          onInputChange={setInputValue}
+          onSend={handleSend}
+          canSend={canSend}
+          isGenerating={isGenerating}
+          banner={banner}
+          placeholder={HOME_UI.composerPlaceholder}
+          modeLabel={HOME_UI.modeLabel}
+          voiceActionLabel={HOME_UI.voiceActionLabel}
+        />
       </div>
     </div>
   );
